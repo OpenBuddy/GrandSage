@@ -284,6 +284,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
 					return
 				}
+				node.ProcessingTasks.Add(1)
 
 			}
 		}
@@ -348,11 +349,10 @@ func modelScheduler(modelState *ModelState) {
 			}
 			select {
 			case node.TaskChan <- task:
-				node.ProcessingTasks.Add(1)
 				log.Println("[sc] Task", task.ID, "issued to node", node.Name)
 				return true
 			default:
-				log.Println("[sc] warning: node", node.Name, "task chan full")
+				//log.Println("[sc] warning: node", node.Name, "task chan full")
 				continue
 			}
 		}
