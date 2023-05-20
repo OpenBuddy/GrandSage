@@ -1,6 +1,6 @@
 # GrandSage
 
-GrandSage is a distributed Large Language Model (LLM) inference framework that aims to support as many concurrent users as possible using reasonably priced cloud services. Please note that this project is still in the early stages of development and is currently not functional.
+GrandSage（大贤者） is a distributed Large Language Model (LLM) inference framework that aims to support as many concurrent users as possible using reasonably priced cloud services. Please note that this project is still in the early stages of development and is currently not functional.
 
 ## TO-DO List
 - Implement GPU inference nodes using the transformers library
