@@ -21,3 +21,11 @@
 go.work
 
 config.json
+
+node_modules
+
+*.ipynb
+
+test.py
+
+test.bat

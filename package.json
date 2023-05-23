@@ -1,0 +1,15 @@
+{
+  "name": "grandsage",
+  "version": "1.0.0",
+  "description": "GrandSage（大贤者） is a distributed Large Language Model (LLM) inference framework that aims to support as many concurrent users as possible using reasonably priced cloud services. Please note that this project is still in the early stages of development and is currently not functional.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "uuid": "^9.0.0",
+    "ws": "^8.13.0"
+  }
+}

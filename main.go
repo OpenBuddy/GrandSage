@@ -113,6 +113,7 @@ type ChatMessage struct {
 }
 
 type ModelState struct {
+	Mutex      sync.Mutex
 	UpdateCond *sync.Cond
 	Nodes      []*ComputeNode
 	TaskChan   chan *Task
@@ -284,7 +285,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
 					return
 				}
-				node.ProcessingTasks.Add(1)
 
 			}
 		}
@@ -471,7 +471,7 @@ func prepareConfig() {
 		if !ok {
 			modelState = &ModelState{
 				Nodes:      make([]*ComputeNode, 0, 10),
-				UpdateCond: sync.NewCond(&sync.Mutex{}),
+				UpdateCond: sync.NewCond(&modelState.Mutex),
 				TaskChan:   make(chan *Task, 1000),
 			}
 			ModelStateMap[v.Model] = modelState
