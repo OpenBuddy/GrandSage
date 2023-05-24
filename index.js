@@ -31,7 +31,7 @@ function processConfig(config) {
   }
 }
 processConfig(config);
-  
+
 
 class ComputeNode {
   constructor(name, model, maxConcurrency) {
@@ -59,7 +59,7 @@ class ComputeNode {
 
   addTask(task) {
     if (!this.isConnected()) {
-      console.log('[warn] Attempted to add task to disconnected node', this.name); 
+      console.log('[warn] Attempted to add task to disconnected node', this.name);
       return false;
     }
     if (task.state !== 0) {
@@ -69,7 +69,7 @@ class ComputeNode {
     this.currentTasks[task.id] = task;
     this.wsConn.send(JSON.stringify(task));
     task.state = 1;
-    task.node = this; 
+    task.node = this;
     return true;
   }
 
@@ -185,12 +185,12 @@ class Model {
       if (availableNode.addTask(task)) {
         return;
       }
-    } 
+    }
     this.taskQueue.push(task);
   }
 
   onNodeStatusChange(node) {
-    while(this.taskQueue.length > 0 && node.isAvailable()) {
+    while (this.taskQueue.length > 0 && node.isAvailable()) {
       const task = this.taskQueue.shift();
       if (task.state != 0) {
         continue;
@@ -212,8 +212,9 @@ function cancelTask(task) {
       task.node.removeTask(task.id, true);
     }
   }
-
 }
+
+
 
 const server = http.createServer((req, res) => {
   const headers = {
@@ -221,107 +222,131 @@ const server = http.createServer((req, res) => {
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type'
   };
+  headers['Content-Type'] = 'text/event-stream';
+  headers['Cache-Control'] = 'no-cache';
+  res.writeHead(200, '', headers);
   if (req.url === '/api/chat' && req.method === 'POST') {
     let body = '';
     req.on('data', (chunk) => {
       body += chunk.toString();
     });
     req.on('end', () => {
-      const data = JSON.parse(body);
-      const uuid = uuidv4();
-      const id = crypto.randomInt(0, 0x7FFFFFFF);
-      const task = {
-        state: 0,
-        id: id,
-        system: data.system || defaultSystemPrompt,
-        messages: data.messages,
-        max_new_tokens: data.max_new_tokens || 50,
-        temperature: data.temperature || 0,
-        created_at: Date.now()
-      };
-      const model = models[data.model];
-      headers['Content-Type'] = 'text/event-stream';
-      headers['Cache-Control'] = 'no-cache';
-      res.writeHead(200, '', headers);
-      if (!model) {
-        console.log("[api] Unknown model:", data.model);
-        res.write(`{"err":"unknown model"}`);
-        res.end()
-        return;
+      try {
+        const data = preprocessChatRequest(body);
+        const id = crypto.randomInt(0, 0x7FFFFFFF);
+        const task = {
+          state: 0,
+          id: id,
+          system: data.system,
+          messages: data.messages,
+          max_new_tokens: data.max_new_tokens,
+          temperature: data.temperature,
+          created_at: Math.floor(Date.now() / 1000),
+        };
+        const model = models[data.model];
+
+        if (!model) {
+          console.log("[api] Unknown model:", data.model);
+          res.write(`{"err":"unknown model"}`);
+          res.end()
+          return;
+        }
+
+        task.ondata = (data) => {
+          if (data === null) {
+            res.write(`{"done":true}`);
+            res.end();
+          } else {
+            res.write(JSON.stringify({ o: data }) + '\n', (err) => {
+              if (err) {
+                console.log("[api] Error writing to response:", err.message);
+                cancelTask(task);
+              }
+            });
+          }
+        }
+        model.queueTask(task);
+        setTimeout(() => {
+          if (task.state === 0) {
+            console.log("[api] Timeout waiting for node:", task.id);
+            res.write(`{"err":"timeout waiting for node"}`);
+            res.end();
+          }
+        }, 30 * 1000);
+        setTimeout(() => {
+          if (task.state !== 2) {
+            console.log("[api] Timeout waiting for finish:", task.id);
+            cancelTask(task);
+            res.write(`{"err":"timeout waiting for finish"}`);
+            res.end();
+          }
+        }, 300 * 1000);
+      } catch (e) {
+        console.log("[api] Error parsing request body", e);
+        res.write(`{"err":"invalid request"}`);
+        res.end();
       }
-      
-      task.ondata = (data) => {
-        if (data === null) {
-          res.write(`{"done":true}`);
-          res.end();
-        } else {
-          res.write(JSON.stringify({o:data}) + '\n', (err) => {
-            if (err) {
-              console.log("[api] Error writing to response:", err.message);
-              cancelTask(task);
-            }
-          });
-        }
-      }
-      model.queueTask(task);
-      setTimeout(() => {
-        if (task.state === 0) {
-          console.log("[api] Timeout waiting for node:", task.id);
-          res.write(`{"err":"timeout waiting for node"}`);
-          res.end();
-        }
-      }, 30 * 1000);
-      setTimeout(() => {
-        if (task.state !== 2) {
-          console.log("[api] Timeout waiting for finish:", task.id);
-          cancelTask(task);
-          res.write(`{"err":"timeout waiting for finish"}`);
-          res.end();
-        }
-      }, 300 * 1000);
     });
-    
   } else {
-    res.writeHead(200, '', headers);
     res.end();
   }
 });
 
+
+
+function preprocessChatRequest(jsonStr) {
+  var obj = JSON.parse(jsonStr);
+  var ret = {};
+  ret.temperature = parseFloat(obj.temperature) || 0;
+  ret.max_new_tokens = parseInt(obj.max_new_tokens) || 50;
+  ret.model = obj.model || 'openbuddy-13b-v1.3-fp16';
+  ret.system = obj.system || defaultSystemPrompt;
+  ret.messages = [];
+  for (var i = 0; i < obj.messages.length; i++) {
+    const message = obj.messages[i];
+    ret.messages.push({
+      "role": message.role || "user",
+      "content": message.content || ""
+    });
+  }
+  return ret;
+}
+
 const wss = new WebSocket.Server({ server });
 
 wss.on('connection', (ws, req) => {
-    console.log('[ws] New connection');
-    // Parse url params
-    const params = new URLSearchParams(req.url.split('?')[1]);
-    const token = params.get('token');
-    const modelName = params.get('model');
-    const maxConcurrency = params.get('max_concurrency');
-    const name = params.get('name');
-    console.log(`[ws] token: ${token}, model: ${modelName}, max_concurrency: ${maxConcurrency}, name: ${name}`);
-    if (!token || !modelName || !maxConcurrency || !name) {
-      console.log('[ws] Missing token, model, max_concurrency, or name');
-      ws.close(4001, 'Missing token, model, max_concurrency, or name');
-      return;
-    }
-    if (token !== config.nodeToken) {
-      console.log('[ws] Invalid token');
-      ws.close(4002, 'Invalid token');
-      return;
-    }
-    const fullName = `${modelName}-${name}`;
-    var model = models[modelName];
-    if (!model) {
-      model = new Model(modelName);
-      models[modelName] = model;
-    }
-    var node = computeNodes[fullName];
-    if (!node) {
-      node = new ComputeNode(fullName, modelName, maxConcurrency);
-      computeNodes[fullName] = node;
-    } else {
-      node.maxConcurrency = maxConcurrency;
-    }
-    node.handleNewWSConn(ws);
+  console.log('[ws] New connection');
+  // Parse url params
+  const params = new URLSearchParams(req.url.split('?')[1]);
+  const token = params.get('token');
+  const modelName = params.get('model');
+  const maxConcurrency = params.get('max_concurrency');
+  const name = params.get('name');
+  console.log(`[ws] token: ${token}, model: ${modelName}, max_concurrency: ${maxConcurrency}, name: ${name}`);
+  if (!token || !modelName || !maxConcurrency || !name) {
+    console.log('[ws] Missing token, model, max_concurrency, or name');
+    ws.close(4001, 'Missing token, model, max_concurrency, or name');
+    return;
+  }
+  if (token !== config.nodeToken) {
+    console.log('[ws] Invalid token');
+    ws.close(4002, 'Invalid token');
+    return;
+  }
+  const fullName = `${modelName}-${name}`;
+  var model = models[modelName];
+  if (!model) {
+    model = new Model(modelName);
+    models[modelName] = model;
+  }
+  var node = computeNodes[fullName];
+  if (!node) {
+    node = new ComputeNode(fullName, modelName, maxConcurrency);
+    computeNodes[fullName] = node;
+  } else {
+    node.maxConcurrency = maxConcurrency;
+  }
+  node.handleNewWSConn(ws);
 });
 
 server.listen(8120, () => {

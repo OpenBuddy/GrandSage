@@ -8,6 +8,7 @@ import torch
 import argparse
 import struct
 
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--model", type=str, default="./openbuddy-13b-v1.3-fp16")
 parser.add_argument("--server", type=str, default="127.0.0.1:8120")
@@ -30,10 +31,21 @@ if args.model.endswith("-bf16"):
     dtype = torch.bfloat16
 modelName = modelPath.split("/")[-1].split("\\")[-1].lower()
 print("Using device:", device, "dtype:", dtype)
-model = AutoModelForCausalLM.from_pretrained(modelPath, torch_dtype=dtype, device_map="auto", low_cpu_mem_usage=True)
+model = AutoModelForCausalLM.from_pretrained(modelPath, torch_dtype=dtype)
 tokenizer = AutoTokenizer.from_pretrained(modelPath)
 
 print("Model loaded, model name:", modelName)
+
+import deepspeed
+dsConfig = {
+    "tensor_parallel": { "tp_size": 1 },
+}
+# if it is llama, we need to patch the model with injection policy
+if isinstance(model, LlamaForCausalLM):
+    dsConfig['injection_policy'] = {LlamaDecoderLayer: ('self_attn.o_proj', 'mlp.up_proj')}
+
+
+model = deepspeed.init_inference(model, **dsConfig)
 
 url = "ws://%s/ws?name=%s&model=%s&token=%s&max_concurrency=%d" % (
     args.server, args.name, modelName, args.token, args.max_concurrency)
@@ -41,8 +53,9 @@ url = "ws://%s/ws?name=%s&model=%s&token=%s&max_concurrency=%d" % (
 ws = None
 msgQueue = []
 
-globalLPList = LogitsProcessorList([RepetitionPenaltyLogitsProcessor(1.04)])
-topPWarper = TopPLogitsWarper(0.9)
+
+cfg_topPWarper = TopPLogitsWarper(0.9)
+cfg_temperature = 0.3
 tasks = []
 isTasksDirty = True
 taskInputIds = None
@@ -161,7 +174,7 @@ def addTask(t):
     print(prompt)
     prompt_ids = tokenizer.encode(
         prompt, truncation=True, max_length=60000)
-    prompt_max_len = HALF_MAX_TOKENS - len(system_ids)
+    prompt_max_len = MAX_TOKENS - 200 - len(system_ids)
     t['prompt_max_len'] = prompt_max_len
     if prompt_max_len < 0:
         print("System prompt too long, skipping...")
@@ -197,6 +210,7 @@ def handleTasks():
     global tasks, isTasksDirty, taskInputIds, taskAttnMasks, taskPosIds, taskPastKVs
     if len(tasks) == 0:
         return
+    print("Handling tasks:", len(tasks))
 
     for t in tasks:
         if len(t['ids']) > MAX_TOKENS - 50:
@@ -223,8 +237,13 @@ def handleTasks():
         return_dict=True
     )
     next_token_logits = outputs.logits[:, -1, :]
-    next_token_logits = globalLPList(taskInputIds, next_token_logits)
-    next_tokens = torch.argmax(next_token_logits, dim=-1)
+    if cfg_temperature == 0:
+        next_tokens = torch.argmax(next_token_logits, dim=-1)
+    else:
+        probs = torch.nn.functional.softmax(next_token_logits / cfg_temperature, dim=-1)
+        probs = cfg_topPWarper(taskInputIds, probs)
+        next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
+
     taskInputIds = next_tokens.unsqueeze(-1)
     taskPosIds = taskPosIds[:, -1].unsqueeze(-1) + 1
     taskAttnMasks = torch.cat([taskAttnMasks, torch.ones(
