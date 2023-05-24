@@ -3,41 +3,53 @@ import websockets
 import json
 import time
 
-from transformers import LlamaTokenizer, AutoModelForCausalLM, AutoTokenizer, TextStreamer, LogitsProcessorList, RepetitionPenaltyLogitsProcessor, LogitsWarper, TemperatureLogitsWarper
+from transformers import TopPLogitsWarper, AutoModelForCausalLM, AutoTokenizer, TextStreamer, LogitsProcessorList, RepetitionPenaltyLogitsProcessor, LogitsWarper, TemperatureLogitsWarper
 import torch
 import argparse
 import struct
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model", type=str, default="./openbuddy-7b-v1.3-bf16")
+parser.add_argument("--model", type=str, default="./openbuddy-13b-v1.3-fp16")
 parser.add_argument("--server", type=str, default="127.0.0.1:8120")
 parser.add_argument("--name", type=str, default="beagle")
 parser.add_argument("--token", type=str, default="unsafe-default-token")
 parser.add_argument("--max_concurrency", type=int, default=1)
 parser.add_argument("--model-name", type=str, default="")
-parser.add_argument("--device", type=str, default="cuda")
 args = parser.parse_args()
 
 MAX_TOKENS = 2048
 HALF_MAX_TOKENS = MAX_TOKENS // 2
 
 
-device = args.device
-model = AutoModelForCausalLM.from_pretrained(args.model).to(device)
-tokenizer = LlamaTokenizer.from_pretrained(args.model)
-modelName = args.model.split("/")[-1].split("\\")[-1].lower()
+device = 'cuda'
+dtype = torch.float16
+modelPath = args.model
+while modelPath.endswith("/") or modelPath.endswith("\\"):
+    modelPath = modelPath[:-1]
+if args.model.endswith("-bf16"):
+    dtype = torch.bfloat16
+modelName = modelPath.split("/")[-1].split("\\")[-1].lower()
+print("Using device:", device, "dtype:", dtype)
+model = AutoModelForCausalLM.from_pretrained(modelPath, torch_dtype=dtype, device_map="auto", low_cpu_mem_usage=True)
+tokenizer = AutoTokenizer.from_pretrained(modelPath)
+
+print("Model loaded, model name:", modelName)
 
 url = "ws://%s/ws?name=%s&model=%s&token=%s&max_concurrency=%d" % (
     args.server, args.name, modelName, args.token, args.max_concurrency)
 
 ws = None
+msgQueue = []
+
+globalLPList = LogitsProcessorList([RepetitionPenaltyLogitsProcessor(1.04)])
+topPWarper = TopPLogitsWarper(0.9)
 tasks = []
 isTasksDirty = True
 taskInputIds = None
 taskAttnMasks = None
 taskPosIds = None
 taskPastKVs = None
-msgQueue = []
+
 
 
 class MyStreamer(TextStreamer):
@@ -53,6 +65,7 @@ class MyStreamer(TextStreamer):
         if len(text) > 0:
             msgQueue.append(self.idbstr + text.encode("utf-8"))
         if stream_end:
+            print("Stream end, sending EOS:", self.id)
             msgQueue.append(self.idbstr)
 
 
@@ -92,6 +105,7 @@ async def trySendMsg(msg):
 
 async def mainLoop():
     global ws, tasks
+    asyncio.create_task(watchDog())
     lastPingTime = 0
     await tryConnectWS()
     while True:
@@ -120,10 +134,21 @@ async def mainLoop():
         msgQueue.clear()
 
 
+def getTaskByID(id):
+    global tasks
+    for t in tasks:
+        if t['id'] == id:
+            return t
+    return None
+
 def addTask(t):
     global tasks, isTasksDirty
+    if getTaskByID(t['id']) is not None:
+        print("Task already exists, ignoring...")
+        return
     isTasksDirty = True
-    system_ids = tokenizer.encode(t['system'] + "\n\n", truncation=True, max_length=MAX_TOKENS)
+    system_ids = tokenizer.encode(
+        t['system'] + "\n\n", truncation=True, max_length=MAX_TOKENS)
     prompt = ''
     for m in t['messages']:
         role = "User"
@@ -134,7 +159,8 @@ def addTask(t):
             prompt += "\n"
     prompt += "Assistant:"
     print(prompt)
-    prompt_ids = tokenizer.encode(prompt, truncation=True, max_length=MAX_TOKENS)
+    prompt_ids = tokenizer.encode(
+        prompt, truncation=True, max_length=60000)
     prompt_max_len = HALF_MAX_TOKENS - len(system_ids)
     t['prompt_max_len'] = prompt_max_len
     if prompt_max_len < 0:
@@ -160,6 +186,7 @@ def handleMessage(msg):
                 isTasksDirty = True
         else:
             addTask(msg)
+
 
 
 @torch.inference_mode()
@@ -193,23 +220,24 @@ def handleTasks():
         return_dict=True
     )
     next_token_logits = outputs.logits[:, -1, :]
-    probs = torch.nn.functional.softmax(next_token_logits, dim=-1)
-    next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
+    next_token_logits = globalLPList(taskInputIds, next_token_logits)
+    next_tokens = torch.argmax(next_token_logits, dim=-1)
     taskInputIds = next_tokens.unsqueeze(-1)
     taskPosIds = taskPosIds[:, -1].unsqueeze(-1) + 1
     taskAttnMasks = torch.cat([taskAttnMasks, torch.ones(
         len(tasks), 1, dtype=torch.long, device=device)], dim=-1)
     taskPastKVs = outputs.past_key_values
     tasksToDelete = []
-    next_tokens = next_tokens.to('cpu')
+    next_tokens = next_tokens.cpu()
     for i, t in enumerate(tasks):
-        next_token = next_tokens[i].item() 
+        next_token = next_tokens[i].item()
         streamer: MyStreamer = t['streamer']
         t['max_new_tokens'] -= 1
         if next_token != tokenizer.eos_token_id:
             streamer.put(next_tokens[i].unsqueeze(0))
             t['ids'].append(next_token)
         if (t['max_new_tokens'] <= 0) or (next_token == tokenizer.eos_token_id):
+            print("Finishing task", t['id'])
             streamer.end()
             tasksToDelete.append(i)
             continue
@@ -218,12 +246,15 @@ def handleTasks():
         isTasksDirty = True
 
 
-def isValidUTF8Str(bs):
-    try:
-        bs.decode("utf-8", "strict")
-        return True
-    except Exception as e:
-        return False
+# Called every 30 seconds
+async def watchDog():
+    while True:
+        await asyncio.sleep(30)
+        print("=== Info, time:", time.time())
+        print("Tasks:", len(tasks))
+        for t in tasks:
+            print("Task", t['id'], ":", len(t['ids']), t['max_new_tokens'])
+        print('======')
 
 
 asyncio.run(mainLoop())

@@ -1,3 +1,5 @@
+// Task states: 0 = pending, 1 = running, 2 = done/cancelled/error
+
 const WebSocket = require('ws');
 const crypto = require('crypto');
 const http = require('http');
@@ -58,6 +60,10 @@ class ComputeNode {
       console.log('[warn] Attempted to add task to disconnected node', this.name); 
       return false;
     }
+    if (task.state !== 0) {
+      console.log('[warn] Attempted to add task that is not pending', task);
+      return false;
+    }
     this.currentTasks[task.id] = task;
     this.wsConn.send(JSON.stringify(task));
     task.state = 1;
@@ -65,12 +71,14 @@ class ComputeNode {
     return true;
   }
 
-  removeTask(taskID) {
+  removeTask(taskID, sendStop = false) {
     if (this.isConnected()) {
-      this.wsConn.send(JSON.stringify({
-        id: taskID,
-        stop: true
-      }));
+      if (sendStop) {
+        this.wsConn.send(JSON.stringify({
+          id: taskID,
+          stop: true
+        }));
+      }
     }
     if (taskID in this.currentTasks) {
       delete this.currentTasks[taskID];
@@ -94,13 +102,20 @@ class ComputeNode {
         const task = this.currentTasks[taskId];
         if (!task) {
           console.log('[node] Received message for unknown task, ignoring');
-          this.removeTask(taskId);
+          this.removeTask(taskId, true);
+          return;
+        }
+        if (task.state !== 1) {
+          console.log('[node] Received message for task that is not running, wow');
+          this.removeTask(taskId, true);
           return;
         }
         var str = null;
         if (buf.length > 4) {
+          // More data to come
           str = buf.slice(4).toString("utf8");
         } else {
+          // Task is done
           this.removeTask(taskId);
           task.state = 2;
         }
@@ -108,10 +123,10 @@ class ComputeNode {
       } else {
         if (buf.length === 0) {
           this.lastPingTime = Date.now();
+        } else {
+          console.log(`[node] Node:${this.name} sent: ${buf.toString("utf8")}`);
         }
-        console.log(`[node] Node:${this.name} sent: ${buf.toString("utf8")}`);
       }
-
     });
     wsConn.on('close', (code, reason) => {
       if (wsConn !== this.wsConn) {
@@ -155,6 +170,10 @@ class Model {
   }
 
   queueTask(task) {
+    if (task.state != 0) {
+      console.log("[model] Attempted to queue task that is not pending", task);
+      return;
+    }
     var availableNode = null;
     for (var k in computeNodes) {
       const node = computeNodes[k];
@@ -174,6 +193,9 @@ class Model {
   onNodeStatusChange(node) {
     while(this.taskQueue.length > 0 && node.isAvailable()) {
       const task = this.taskQueue.shift();
+      if (task.state != 0) {
+        continue;
+      }
       if (!node.addTask(task)) {
         break;
       }
@@ -184,6 +206,12 @@ class Model {
 const models = {};
 
 
+function cancelTask(task) {
+  task.state = 2;
+  if (task.node) {
+    task.node.removeTask(task.id, true);
+  }
+}
 
 const server = http.createServer((req, res) => {
   const headers = {
@@ -223,20 +251,28 @@ const server = http.createServer((req, res) => {
           res.write(`{"done":true}`);
           res.end();
         } else {
-          res.write(JSON.stringify({o:data}) + '\n');
+          res.write(JSON.stringify({o:data}) + '\n', (err) => {
+            if (err) {
+              console.log("Error writing to response", err);
+              cancelTask(task);
+            }
+          });
         }
       }
       model.queueTask(task);
       setTimeout(() => {
-        if (task.state !== 2) {
-          if (task.node) {
-            task.node.removeTask(task.id);
-          }
-          res.write(`{"err":"Timeout"}`);
+        if (task.state === 0) {
+          res.write(`{"err":"timeout waiting for node"}`);
+          res.end();
+        }
+      }, 30 * 1000);
+      setTimeout(() => {
+        if (task.sate !== 2) {
+          cancelTask(task);
+          res.write(`{"err":"timeout waiting for finish"}`);
           res.end();
         }
       }, 300 * 1000);
-
     });
     
   } else {
@@ -244,8 +280,6 @@ const server = http.createServer((req, res) => {
     res.end();
   }
 });
-
-// curl -X POST -d '{"model":"openbuddy-7b-v1.1-bf16-enc", "messages":[{"role":"user", "content":"asdf"}]}' http://localhost:8120/api/chat
 
 const wss = new WebSocket.Server({ server });
 
@@ -278,6 +312,8 @@ wss.on('connection', (ws, req) => {
     if (!node) {
       node = new ComputeNode(fullName, modelName, maxConcurrency);
       computeNodes[fullName] = node;
+    } else {
+      node.maxConcurrency = maxConcurrency;
     }
     node.handleNewWSConn(ws);
 });
