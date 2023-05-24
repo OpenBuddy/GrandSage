@@ -101,7 +101,7 @@ class ComputeNode {
         const taskId = buf.readUInt32BE(0);
         const task = this.currentTasks[taskId];
         if (!task) {
-          console.log('[node] Received message for unknown task, ignoring');
+          console.log('[node] Received message for unknown task, ignoring', taskId, this.name);
           this.removeTask(taskId, true);
           return;
         }
@@ -207,10 +207,13 @@ const models = {};
 
 
 function cancelTask(task) {
-  task.state = 2;
-  if (task.node) {
-    task.node.removeTask(task.id, true);
+  if (task.state != 2) {
+    task.state = 2;
+    if (task.node) {
+      task.node.removeTask(task.id, true);
+    }
   }
+
 }
 
 const server = http.createServer((req, res) => {
@@ -238,14 +241,16 @@ const server = http.createServer((req, res) => {
         created_at: Date.now()
       };
       const model = models[data.model];
-      if (!model) {
-        res.writeHead(200, '{"err": "Invalid model"}', headers);
-        res.end();
-        return;
-      }
       headers['Content-Type'] = 'text/event-stream';
       headers['Cache-Control'] = 'no-cache';
       res.writeHead(200, '', headers);
+      if (!model) {
+        console.log("[api] Unknown model:", data.model);
+        res.write(`{"err":"unknown model"}`);
+        res.end()
+        return;
+      }
+      
       task.ondata = (data) => {
         if (data === null) {
           res.write(`{"done":true}`);
@@ -253,7 +258,7 @@ const server = http.createServer((req, res) => {
         } else {
           res.write(JSON.stringify({o:data}) + '\n', (err) => {
             if (err) {
-              console.log("Error writing to response", err);
+              console.log("[api] Error writing to response:", err.message);
               cancelTask(task);
             }
           });
@@ -262,12 +267,14 @@ const server = http.createServer((req, res) => {
       model.queueTask(task);
       setTimeout(() => {
         if (task.state === 0) {
+          console.log("[api] Timeout waiting for node:", task.id);
           res.write(`{"err":"timeout waiting for node"}`);
           res.end();
         }
       }, 30 * 1000);
       setTimeout(() => {
-        if (task.sate !== 2) {
+        if (task.state !== 2) {
+          console.log("[api] Timeout waiting for finish:", task.id);
           cancelTask(task);
           res.write(`{"err":"timeout waiting for finish"}`);
           res.end();

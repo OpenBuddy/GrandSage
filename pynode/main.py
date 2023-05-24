@@ -184,6 +184,9 @@ def handleMessage(msg):
             if len(newtasks) != len(tasks):
                 tasks = newtasks
                 isTasksDirty = True
+                print("Task stopped:", msg['id'])
+            else:
+                print("Task not found:", msg['id'])
         else:
             addTask(msg)
 
