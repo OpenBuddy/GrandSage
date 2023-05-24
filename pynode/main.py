@@ -78,13 +78,20 @@ class MyStreamer(TextStreamer):
         # Pack big-endian uint32
         self.idbstr = struct.pack(">I", id)
         self.id = id
+        self.buf = ''
 
     def on_finalized_text(self, text: str, stream_end: bool = False):
         if not stream_end and len(text) == 0:
             return
         if len(text) > 0:
-            msgQueue.append(self.idbstr + text.encode("utf-8"))
+            self.buf += text
+            if len(self.buf > 15):
+                msgQueue.append(self.idbstr + self.buf.encode("utf-8"))
+                self.buf = ''
         if stream_end:
+            if len(self.buf) > 0:
+                msgQueue.append(self.idbstr + self.buf.encode("utf-8"))
+                self.buf = ''
             print("Stream end, sending EOS:", self.id)
             msgQueue.append(self.idbstr)
 

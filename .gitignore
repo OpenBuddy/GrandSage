@@ -27,3 +27,5 @@ node_modules
 *.ipynb
 
 test*.*
+
+run.sh
