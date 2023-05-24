@@ -7,6 +7,7 @@ from transformers import TopPLogitsWarper, AutoModelForCausalLM, AutoTokenizer, 
 import torch
 import argparse
 import struct
+import os
 
 
 parser = argparse.ArgumentParser()
@@ -17,6 +18,9 @@ parser.add_argument("--token", type=str, default="unsafe-default-token")
 parser.add_argument("--max_concurrency", type=int, default=1)
 parser.add_argument("--model-name", type=str, default="")
 args = parser.parse_args()
+
+if 'CUDA_VISIBLE_DEVICES' in os.environ:
+    args.name += "-" + os.environ['CUDA_VISIBLE_DEVICES']
 
 MAX_TOKENS = 2048
 HALF_MAX_TOKENS = MAX_TOKENS // 2
@@ -30,19 +34,23 @@ while modelPath.endswith("/") or modelPath.endswith("\\"):
 if args.model.endswith("-bf16"):
     dtype = torch.bfloat16
 modelName = modelPath.split("/")[-1].split("\\")[-1].lower()
-print("Using device:", device, "dtype:", dtype)
+print("Using device:", device, ", dtype:", dtype, ", node name:", args.name, ", model:", modelName)
 model = AutoModelForCausalLM.from_pretrained(modelPath, torch_dtype=dtype)
 tokenizer = AutoTokenizer.from_pretrained(modelPath)
 
-print("Model loaded, model name:", modelName)
+print("Model loaded...")
 
 import deepspeed
 dsConfig = {
     "tensor_parallel": { "tp_size": 1 },
+    "replace_with_kernel_inject": True,
+    "dtype": dtype,
 }
+
 # if it is llama, we need to patch the model with injection policy
-if isinstance(model, LlamaForCausalLM):
-    dsConfig['injection_policy'] = {LlamaDecoderLayer: ('self_attn.o_proj', 'mlp.up_proj')}
+# no need in latest deepspeed
+#if isinstance(model, LlamaForCausalLM):
+#    dsConfig['injection_policy'] = {LlamaDecoderLayer: ('self_attn.o_proj', 'mlp.up_proj')}
 
 
 model = deepspeed.init_inference(model, **dsConfig)
@@ -54,8 +62,7 @@ ws = None
 msgQueue = []
 
 
-cfg_topPWarper = TopPLogitsWarper(0.9)
-cfg_temperature = 0.3
+topPWarper = TopPLogitsWarper(0.9)
 tasks = []
 isTasksDirty = True
 taskInputIds = None
@@ -236,13 +243,16 @@ def handleTasks():
         use_cache=True,
         return_dict=True
     )
-    next_token_logits = outputs.logits[:, -1, :]
-    if cfg_temperature == 0:
-        next_tokens = torch.argmax(next_token_logits, dim=-1)
-    else:
-        probs = torch.nn.functional.softmax(next_token_logits / cfg_temperature, dim=-1)
-        probs = cfg_topPWarper(taskInputIds, probs)
-        next_tokens = torch.multinomial(probs, num_samples=1).squeeze(1)
+    logits = outputs.logits[:, -1, :]
+    next_tokens = torch.argmax(logits, dim=-1)
+    for i, t in enumerate(tasks):
+        if t['temperature'] == 0:
+            continue
+        thisLogit = logits[i].unsqueeze(0)
+        thisLogit = thisLogit / t['temperature']
+        thisLogit = topPWarper(None, thisLogit)
+        thisLogit = thisLogit.softmax(dim=-1)
+        next_tokens[i] = torch.multinomial(thisLogit, num_samples=1)[0]
 
     taskInputIds = next_tokens.unsqueeze(-1)
     taskPosIds = taskPosIds[:, -1].unsqueeze(-1) + 1

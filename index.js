@@ -298,6 +298,9 @@ function preprocessChatRequest(jsonStr) {
   var obj = JSON.parse(jsonStr);
   var ret = {};
   ret.temperature = parseFloat(obj.temperature) || 0;
+  if ((obj.temperature < 0.01)  || (obj.temperature > 0.99)) {
+    ret.temperature = 0;
+  }
   ret.max_new_tokens = parseInt(obj.max_new_tokens) || 50;
   ret.model = obj.model || 'openbuddy-13b-v1.3-fp16';
   ret.system = obj.system || defaultSystemPrompt;
