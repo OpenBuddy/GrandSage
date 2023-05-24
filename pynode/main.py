@@ -35,7 +35,7 @@ if args.model.endswith("-bf16"):
     dtype = torch.bfloat16
 modelName = modelPath.split("/")[-1].split("\\")[-1].lower()
 print("Using device:", device, ", dtype:", dtype, ", node name:", args.name, ", model:", modelName)
-model = AutoModelForCausalLM.from_pretrained(modelPath, torch_dtype=dtype)
+model = AutoModelForCausalLM.from_pretrained(modelPath, torch_dtype=dtype, low_cpu_mem_usage=True)
 tokenizer = AutoTokenizer.from_pretrained(modelPath)
 
 print("Model loaded...")
