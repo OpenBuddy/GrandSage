@@ -12,10 +12,10 @@ GrandSage（大贤者） is a distributed Large Language Model (LLM) inference f
 
 ## System Architecture
 
-The system is currently divided into three parts: 1. Broker, 2. Transformers Node, and 3. Llama.cpp Node. The broker is the module that directly handles user requests and manages all nodes, corresponding to this repo.
+The system is currently divided into three parts: 1. Broker, 2. Python Node, and 3. Llama.cpp Node.
 
-1. The broker is written in Golang. It handles user requests, selects and sends them to an inference node, and streams the responses from the inference node.
-2. The Transformers Node is written in Python and uses the transformers library to support as many models as possible.
+1. The broker is written in node.js. It handles user requests, selects and sends them to an inference node, and streams the responses from the inference node.
+2. The Python Node is written in Python and uses the transformers library to support as many models as possible.
 3. Based on a highly optimized C++ library, the Llama.cpp Node is dedicated to implementing slower, less accurate inference capabilities on low-cost hardware.
 4. The broker and node communicate via WebSocket, based on a dedicated protocol definition. Please refer to docs/ws-protocol.md for more details.
 
