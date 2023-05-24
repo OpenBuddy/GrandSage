@@ -8,6 +8,8 @@ const fs = require('fs');
 
 const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
 const tokenToUsers = {};
+const computeNodes = {};
+const models = {};
 
 function processConfig(config) {
   if (!config.nodeToken) {
@@ -159,9 +161,6 @@ class ComputeNode {
 
 }
 
-const computeNodes = {};
-const taskIDToNode = {};
-
 
 class Model {
   constructor(name) {
@@ -203,7 +202,7 @@ class Model {
   }
 }
 
-const models = {};
+
 
 
 function cancelTask(task) {
