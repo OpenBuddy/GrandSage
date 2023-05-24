@@ -26,6 +26,4 @@ node_modules
 
 *.ipynb
 
-test.py
-
-test.bat
+test*.*

@@ -3,7 +3,7 @@ import websockets
 import json
 import time
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, TextStreamer, LogitsProcessorList, RepetitionPenaltyLogitsProcessor, LogitsWarper, TemperatureLogitsWarper
+from transformers import LlamaTokenizer, AutoModelForCausalLM, AutoTokenizer, TextStreamer, LogitsProcessorList, RepetitionPenaltyLogitsProcessor, LogitsWarper, TemperatureLogitsWarper
 import torch
 import argparse
 import struct
@@ -24,9 +24,8 @@ HALF_MAX_TOKENS = MAX_TOKENS // 2
 
 device = args.device
 model = AutoModelForCausalLM.from_pretrained(args.model).to(device)
-tokenizer = AutoTokenizer.from_pretrained(args.model)
-
-modelName = args.model_name.split("/")[-1].split("\\")[-1].lower()
+tokenizer = LlamaTokenizer.from_pretrained(args.model)
+modelName = args.model.split("/")[-1].split("\\")[-1].lower()
 
 url = "ws://%s/ws?name=%s&model=%s&token=%s&max_concurrency=%d" % (
     args.server, args.name, modelName, args.token, args.max_concurrency)
@@ -100,20 +99,21 @@ async def mainLoop():
         if currentTime - lastPingTime > 10:
             lastPingTime = currentTime
             await trySendMsg("")
-
         if ws is None:
             await asyncio.sleep(1)
             continue
 
+        msg = None
         try:
             msg = await asyncio.wait_for(ws.recv(), timeout=0.01)
-            if msg is not None:
-                handleMessage(msg)
         except Exception as e:
-            print("Error when receiving message", e)
-            ws = None
-            continue
-
+            # Check if it's timeout
+            if type(e) != asyncio.TimeoutError:
+                print("Error when receiving message", e)
+                ws = None
+                continue
+        if msg is not None:
+            handleMessage(msg)
         handleTasks()
         for msg in msgQueue:
             await trySendMsg(msg)
@@ -123,16 +123,18 @@ async def mainLoop():
 def addTask(t):
     global tasks, isTasksDirty
     isTasksDirty = True
-    system_ids = tokenizer(t['system'] + "\n\n").input_ids
+    system_ids = tokenizer.encode(t['system'] + "\n\n", truncation=True, max_length=MAX_TOKENS)
     prompt = ''
     for m in t['messages']:
         role = "User"
         if m['role'].lower() == 'assistant':
             role = "Assistant"
-        prompt += "%s: %s\n" % (role, m['text'])
+        prompt += "%s: %s\n" % (role, m['content'])
         if role == "Assistant":
             prompt += "\n"
-    prompt_ids = tokenizer(prompt).input_ids
+    prompt += "Assistant:"
+    print(prompt)
+    prompt_ids = tokenizer.encode(prompt, truncation=True, max_length=MAX_TOKENS)
     prompt_max_len = HALF_MAX_TOKENS - len(system_ids)
     t['prompt_max_len'] = prompt_max_len
     if prompt_max_len < 0:
@@ -142,11 +144,7 @@ def addTask(t):
     if prompt_max_len < len(prompt_ids):
         prompt_ids = prompt_ids[-prompt_max_len:]
     t['ids'] = system_ids + prompt_ids
-    t['logits_processor'] = LogitsProcessorList([
-        RepetitionPenaltyLogitsProcessor(1.04),
-    ])
-    t['logits_warper'] = TemperatureLogitsWarper(t['temperature'])
-    t['streamer'] = MyStreamer(eos_token_id=tokenizer.eos_token_id)
+    t['streamer'] = MyStreamer(t['id'], tokenizer=tokenizer)
     tasks.append(t)
 
 
@@ -205,11 +203,11 @@ def handleTasks():
     tasksToDelete = []
     next_tokens = next_tokens.to('cpu')
     for i, t in enumerate(tasks):
-        next_token = next_tokens[i].item()
+        next_token = next_tokens[i].item() 
         streamer: MyStreamer = t['streamer']
         t['max_new_tokens'] -= 1
         if next_token != tokenizer.eos_token_id:
-            streamer.put(next_token)
+            streamer.put(next_tokens[i].unsqueeze(0))
             t['ids'].append(next_token)
         if (t['max_new_tokens'] <= 0) or (next_token == tokenizer.eos_token_id):
             streamer.end()

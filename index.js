@@ -50,7 +50,7 @@ class ComputeNode {
     if (!this.isConnected()) {
       return false;
     }
-    return Object.keys(a).length < this.maxConcurrency;
+    return Object.keys(this.currentTasks).length < this.maxConcurrency;
   }
 
   addTask(task) {
@@ -72,7 +72,7 @@ class ComputeNode {
         stop: true
       }));
     }
-    if (task.id in this.currentTasks) {
+    if (taskID in this.currentTasks) {
       delete this.currentTasks[taskID];
       models[this.model].onNodeStatusChange(this);
     }
@@ -118,14 +118,14 @@ class ComputeNode {
         return;
       }
       console.log(`[node] ${this.name} disconnected: ${code} ${reason}`);
-      wsConn.disconnect();
+      wsConn.close(4000, 'Bye');
     });
     wsConn.on('error', (err) => {
       if (wsConn !== this.wsConn) {
         return;
       }
       console.log(`[node] ${this.name} error: ${err}`);
-      wsConn.disconnect();
+      wsConn.close(4000, 'Bye');
     });
     models[this.model].onNodeStatusChange(this);
     console.log(`[node] ${this.name} connected`);
@@ -155,7 +155,14 @@ class Model {
   }
 
   queueTask(task) {
-    const availableNode = computeNodes.find(node => (node.model === this.name && node.isAvailable()));
+    var availableNode = null;
+    for (var k in computeNodes) {
+      const node = computeNodes[k];
+      if (node.isAvailable()) {
+        availableNode = node;
+        break;
+      }
+    }
     if (availableNode) {
       if (availableNode.addTask(task)) {
         return;
@@ -198,7 +205,7 @@ const server = http.createServer((req, res) => {
         id: id,
         system: data.system || defaultSystemPrompt,
         messages: data.messages,
-        max_new_tokens: data.max_new_tokens || 64,
+        max_new_tokens: data.max_new_tokens || 50,
         temperature: data.temperature || 0,
         created_at: Date.now()
       };
@@ -237,6 +244,8 @@ const server = http.createServer((req, res) => {
     res.end();
   }
 });
+
+// curl -X POST -d '{"model":"openbuddy-7b-v1.1-bf16-enc", "messages":[{"role":"user", "content":"asdf"}]}' http://localhost:8120/api/chat
 
 const wss = new WebSocket.Server({ server });
 
