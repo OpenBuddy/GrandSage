@@ -85,7 +85,7 @@ class MyStreamer(TextStreamer):
             return
         if len(text) > 0:
             self.buf += text
-            if len(self.buf > 15):
+            if len(self.buf) > 15:
                 msgQueue.append(self.idbstr + self.buf.encode("utf-8"))
                 self.buf = ''
         if stream_end:
@@ -146,7 +146,10 @@ async def mainLoop():
 
         msg = None
         try:
-            msg = await asyncio.wait_for(ws.recv(), timeout=0.01)
+            waitTime = 0.001
+            if len(tasks) == 0:
+                waitTime = 0.1
+            msg = await asyncio.wait_for(ws.recv(), timeout=waitTime)
         except Exception as e:
             # Check if it's timeout
             if type(e) != asyncio.TimeoutError:
@@ -224,7 +227,7 @@ def handleTasks():
     global tasks, isTasksDirty, taskInputIds, taskAttnMasks, taskPosIds, taskPastKVs
     if len(tasks) == 0:
         return
-    print("Handling tasks:", len(tasks))
+    #print("Handling tasks:", len(tasks))
 
     for t in tasks:
         if len(t['ids']) > MAX_TOKENS - 50:
