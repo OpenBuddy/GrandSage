@@ -15,6 +15,7 @@ parser.add_argument("--model", type=str, default="./openbuddy-13b-v1.3-fp16")
 parser.add_argument("--server", type=str, default="127.0.0.1:8120")
 parser.add_argument("--name", type=str, default="beagle")
 parser.add_argument("--token", type=str, default="unsafe-default-token")
+parser.add_argument("--tp_size", type=int, default=1)
 parser.add_argument("--max_concurrency", type=int, default=1)
 parser.add_argument("--model-name", type=str, default="")
 args = parser.parse_args()
@@ -42,7 +43,7 @@ print("Model loaded...")
 
 import deepspeed
 dsConfig = {
-    "tensor_parallel": { "tp_size": 1 },
+    "tensor_parallel": { "tp_size": args.tp_size },
     "replace_with_kernel_inject": True,
     "dtype": dtype,
 }
