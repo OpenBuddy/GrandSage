@@ -30,11 +30,6 @@
             return document.getElementById(id);
         }
         
-        var msgHistory = [];
-        var lastContent = null
-        var chatBox = document.getElementById("chatBox");
-        var inputBox = document.getElementById("inputBox");
-
         function genUUID4() {
             var arr = window.crypto.getRandomValues(new Uint8Array(16));
             arr[6] = (arr[6] & 0x0f) | 0x40;
@@ -48,6 +43,13 @@
             }
             return ret;
         }
+        
+        var msgHistory = [];
+        var lastContent = null
+        var chatBox = document.getElementById("chatBox");
+        var inputBox = document.getElementById("inputBox");
+        var convID = genUUID4();
+
 
         if (!window.localStorage) {
             window.localStorage = {};
@@ -112,7 +114,7 @@
                     "messages": msgHistory,
                     "temperature": parseFloat($id("temperature").value),
                     "max_new_tokens": 700,
-                    "conversation_id": genUUID4(),
+                    "conversation_id": convID,
                     "user_id": localStorage['user_id']
 
                 };

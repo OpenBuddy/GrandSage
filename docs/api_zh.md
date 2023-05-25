@@ -20,7 +20,7 @@ Authorization: Bearer YOUR_TOKEN
   ],
   "temperature": 0.5,
   "max_new_tokens": 700,
-  "conversation_id": genUUID4(),
+  "conversation_id": getConversationID(),
   "user_id": getUserID()
 }
 ```
@@ -33,7 +33,7 @@ Authorization: Bearer YOUR_TOKEN
 - `messages`: 会话消息数组，每个元素是一个对象，包含角色（"user"或"AI"）和内容。
 - `temperature`: 控制AI生成结果的随机性的值，范围在0和0.9之间，值越大结果越随机。
 - `max_new_tokens`: AI在每个响应中最多生成的新token数。
-- `conversation_id`: 对话UUID，由客户端生成。
+- `conversation_id`: 对话ID，由客户端生成。必须是UUID的格式。
 - `user_id`: 用户ID，用于审查。
 
 ## 响应格式
