@@ -6,7 +6,7 @@
 
 请求格式如下：
 
-```markdown
+```
 POST /api/chat HTTP/1.1
 Authorization: Bearer YOUR_TOKEN
 
