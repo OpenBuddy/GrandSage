@@ -35,6 +35,28 @@
         var chatBox = document.getElementById("chatBox");
         var inputBox = document.getElementById("inputBox");
 
+        function genUUID4() {
+            var arr = window.crypto.getRandomValues(new Uint8Array(16));
+            arr[6] = (arr[6] & 0x0f) | 0x40;
+            arr[8] = (arr[8] & 0x3f) | 0x80;
+            var ret = ""
+            for (var i = 0; i < arr.length; i++) {
+                if (i == 4 || i == 6 || i == 8 || i == 10) {
+                    ret += "-";
+                }
+                ret += arr[i].toString(16).padStart(2, "0");
+            }
+            return ret;
+        }
+
+        if (!window.localStorage) {
+            window.localStorage = {};
+        }
+
+        if (!localStorage['user_id']) {
+            localStorage['user_id'] = genUUID4();
+        }
+
         $id("temperature").oninput = function () {
             $id("temp").innerText = this.value;
         }
@@ -89,7 +111,10 @@
                     "model": modelName,
                     "messages": msgHistory,
                     "temperature": parseFloat($id("temperature").value),
-                    "max_new_tokens": 700
+                    "max_new_tokens": 700,
+                    "conversation_id": genUUID4(),
+                    "user_id": localStorage['user_id']
+
                 };
                 console.log(reqObj)
                 var response = await fetch(apiUrl, {
@@ -103,10 +128,11 @@
                 console.log(response)
                 var buf = "";
                 var reader = response.body.getReader();
+                var textDec = new TextDecoder("utf-8");
                 while (true) {
                     var { done, value } = await reader.read();
                     if (done) break;
-                    var str = new TextDecoder("utf-8").decode(value);
+                    var str = textDec.decode(value, { stream: true }); // "stream" option will save the unfinished charactors in the buffer for next decode
                     buf += str;
                     var lines = buf.split("\n");
                     for (var i = 0; i < lines.length - 1; i++) {
