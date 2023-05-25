@@ -18,7 +18,7 @@
         <div class="w-2/3 p-4 flex flex-col">
             <div id="chatBox" class="flex-grow overflow-y-auto bg-white rounded p-4 mb-4">
             </div>
-            <textarea id="inputBox" rows="1" class="resize-none" style="padding:8px;"></textarea>
+            <textarea id="inputBox" rows="1" class="resize-none" style="padding:8px;" placeholder="Ctrl+Enter to send the message"></textarea>
         </div>
     </div>
     <script>
@@ -28,6 +28,17 @@
 
         function $id(id) {
             return document.getElementById(id);
+        }
+
+        if (!window.crypto) {
+            window.crypto = {};
+            window.crypto.getRandomValues = function (arr) {
+                console.log("Warning: using unsafe polyfill for window.crypto.getRandomValues");
+                for (var i = 0; i < arr.length; i++) {
+                    arr[i] = Math.floor(Math.random() * 256);
+                }
+                return arr;
+            }
         }
         
         function genUUID4() {
@@ -122,7 +133,7 @@
                 var response = await fetch(apiUrl, {
                     method: "POST",
                     headers: {
-                        "Authorization": apiToken
+                        "Authorization": "Bearer " + apiToken,
                     },
                     body: JSON.stringify(reqObj)
                 });
@@ -166,11 +177,13 @@
             // Enable input
             inputBox.disabled = false;
             if (msg.length > 0) {
-                inputBox.value = "";
                 msgHistory.push({
                     "role": "assistant",
                     "content": msg.trim()
                 });
+                inputBox.value = "";
+                inputBox.oninput();
+                inputBox.focus();
             }
         }
 

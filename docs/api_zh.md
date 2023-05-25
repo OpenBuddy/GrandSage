@@ -30,11 +30,11 @@ Authorization: Bearer YOUR_TOKEN
 请求参数包含以下字段：
 
 - `model`: 选择的模型名称，例如："openbuddy-13b-v1.3-fp16"。
-- `messages`: 会话消息数组，每个元素是一个对象，包含角色（"user"或"AI"）和内容。
-- `temperature`: 控制AI生成结果的随机性的值，范围在0和0.9之间，值越大结果越随机。
+- `messages`: 会话消息数组，每个元素是一个对象，包含角色（"user"或"assistant"）和内容。
+- `temperature`: 控制AI生成结果的随机性的值，范围在0和0.9之间，值越大结果越具备随机性、越有创意。
 - `max_new_tokens`: AI在每个响应中最多生成的新token数。
 - `conversation_id`: 对话ID，由客户端生成。必须是UUID的格式。
-- `user_id`: 用户ID，用于审查。
+- `user_id`: 应用的用户ID，用于审查。
 
 ## 响应格式
 
