@@ -18,7 +18,16 @@ parser.add_argument("--token", type=str, default="unsafe-default-token")
 parser.add_argument("--tp_size", type=int, default=1)
 parser.add_argument("--max_concurrency", type=int, default=1)
 parser.add_argument("--model-name", type=str, default="")
+parser.add_argument("--deepspeed", action="store_true")
+parser.add_argument("--patch", type=str, default="")
 args = parser.parse_args()
+
+if args.patch == "xformers":
+    import patch_xformers
+elif args.patch == "sdp":
+    import patch_sdp
+else:
+    assert args.patch == "", "Unknown patch type: " + args.patch
 
 if 'CUDA_VISIBLE_DEVICES' in os.environ:
     args.name += "-" + os.environ['CUDA_VISIBLE_DEVICES']
@@ -35,26 +44,28 @@ while modelPath.endswith("/") or modelPath.endswith("\\"):
 if args.model.endswith("-bf16"):
     dtype = torch.bfloat16
 modelName = modelPath.split("/")[-1].split("\\")[-1].lower()
+
 print("Using device:", device, ", dtype:", dtype, ", node name:", args.name, ", model:", modelName)
-model = AutoModelForCausalLM.from_pretrained(modelPath, torch_dtype=dtype, low_cpu_mem_usage=True)
+hfConfig = {
+    "torch_dtype": dtype,
+    "low_cpu_mem_usage": True,
+}
+if not args.deepspeed:
+    hfConfig["device_map"] = "auto"
+model = AutoModelForCausalLM.from_pretrained(modelPath, **hfConfig)
 tokenizer = AutoTokenizer.from_pretrained(modelPath)
 
 print("Model loaded...")
 
-import deepspeed
-dsConfig = {
-    "tensor_parallel": { "tp_size": args.tp_size },
-    "replace_with_kernel_inject": True,
-    "dtype": dtype,
-}
+if args.deepspeed:
+    print("Using deepspeed...")
+    import deepspeed
+    dsConfig = {
+        "replace_with_kernel_inject": True,
+        "dtype": dtype,
+    }
+    model = deepspeed.init_inference(model, **dsConfig)
 
-# if it is llama, we need to patch the model with injection policy
-# no need in latest deepspeed
-#if isinstance(model, LlamaForCausalLM):
-#    dsConfig['injection_policy'] = {LlamaDecoderLayer: ('self_attn.o_proj', 'mlp.up_proj')}
-
-
-model = deepspeed.init_inference(model, **dsConfig)
 
 url = "ws://%s/ws?name=%s&model=%s&token=%s&max_concurrency=%d" % (
     args.server, args.name, modelName, args.token, args.max_concurrency)
@@ -202,6 +213,8 @@ def addTask(t):
         prompt_ids = prompt_ids[-prompt_max_len:]
     t['ids'] = system_ids + prompt_ids
     t['streamer'] = MyStreamer(t['id'], tokenizer=tokenizer)
+    t['tokens_generated'] = 0
+    t['start_time'] = time.time()
     tasks.append(t)
 
 
@@ -221,7 +234,8 @@ def handleMessage(msg):
         else:
             addTask(msg)
 
-
+def getTaskSpeed(t):
+    return "%.2f" % (t['tokens_generated'] / (time.time() - t['start_time'] + 0.0001))
 
 @torch.inference_mode()
 def handleTasks():
@@ -275,12 +289,12 @@ def handleTasks():
     for i, t in enumerate(tasks):
         next_token = next_tokens[i].item()
         streamer: MyStreamer = t['streamer']
-        t['max_new_tokens'] -= 1
+        t['tokens_generated'] += 1
         if next_token != tokenizer.eos_token_id:
             streamer.put(next_tokens[i].unsqueeze(0))
             t['ids'].append(next_token)
-        if (t['max_new_tokens'] <= 0) or (next_token == tokenizer.eos_token_id):
-            print("Finishing task", t['id'])
+        if (t['tokens_generated'] >= t['max_new_tokens']) or (next_token == tokenizer.eos_token_id):
+            print("Finishing task", t['id'], "Speed:", getTaskSpeed(t))
             streamer.end()
             tasksToDelete.append(i)
             continue
@@ -296,7 +310,7 @@ async def watchDog():
         print("=== Info, time:", time.time())
         print("Tasks:", len(tasks))
         for t in tasks:
-            print("Task", t['id'], ":", len(t['ids']), t['max_new_tokens'])
+            print("Task", t['id'], ":", t['tokens_generated'], "Speed:", getTaskSpeed(t))
         print('======')
 
 
