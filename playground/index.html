@@ -118,7 +118,7 @@
                     "user_id": localStorage['user_id']
 
                 };
-                console.log(reqObj)
+                console.log(JSON.stringify(reqObj));
                 var response = await fetch(apiUrl, {
                     method: "POST",
                     headers: {
@@ -169,7 +169,7 @@
                 inputBox.value = "";
                 msgHistory.push({
                     "role": "assistant",
-                    "content": msg
+                    "content": msg.trim()
                 });
             }
         }
