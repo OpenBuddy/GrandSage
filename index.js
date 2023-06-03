@@ -247,14 +247,14 @@ const server = http.createServer((req, res) => {
 
         if (!model) {
           console.log("[api] Unknown model:", data.model);
-          res.write(`{"err":"unknown model"}`);
+          res.write(`{"err":"unknown model"}\n`);
           res.end()
           return;
         }
 
         task.ondata = (data) => {
           if (data === null) {
-            res.write(`{"done":true}`);
+            res.write(`{"done":true}\n`);
             res.end();
           } else {
             res.write(JSON.stringify({ o: data }) + '\n', (err) => {
@@ -269,7 +269,7 @@ const server = http.createServer((req, res) => {
         setTimeout(() => {
           if (task.state === 0) {
             console.log("[api] Timeout waiting for node:", task.id);
-            res.write(`{"err":"timeout waiting for node"}`);
+            res.write(`{"err":"timeout waiting for node"}\n`);
             res.end();
           }
         }, 30 * 1000);
@@ -277,13 +277,14 @@ const server = http.createServer((req, res) => {
           if (task.state !== 2) {
             console.log("[api] Timeout waiting for finish:", task.id);
             cancelTask(task);
-            res.write(`{"err":"timeout waiting for finish"}`);
+            res.write(`{"err":"timeout waiting for finish"}\n`);
             res.end();
           }
         }, 300 * 1000);
       } catch (e) {
         console.log("[api] Error parsing request body", e);
-        res.write(`{"err":"invalid request"}`);
+        console.log(body)
+        res.write(`{"err":"invalid request"}\n`);
         res.end();
       }
     });
