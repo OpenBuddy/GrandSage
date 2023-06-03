@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenBuddy Demo</title>
+    <link href="tailwind.min.css" rel="stylesheet">
+</head>
+
+<body class="bg-gray-200">
+    <div class="flex h-screen">
+        <div class="w-1/3 p-4 bg-white">
+            <h2 class="text-xl font-bold mb-4">Parameter Settings</h2>
+            <label class="block">Temperature: <span id="temp">0.5</span></label>
+            <input id="temperature" type="range" min="0" max="0.9" value="0.5" step="0.01" class="w-full">
+        </div>
+        <div class="w-2/3 p-4 flex flex-col">
+            <div id="chatBox" class="flex-grow overflow-y-auto bg-white rounded p-4 mb-4">
+            </div>
+            <textarea id="inputBox" rows="1" class="resize-none" style="padding:8px;" placeholder="Ctrl+Enter to send the message"></textarea>
+        </div>
+    </div>
+    <script>
+        var apiUrl = "http://" + (location.hostname || "127.0.0.1") + ":8120/api/chat"
+        var apiToken = "unsafe-test-token"
+        var modelName = "openbuddy-13b-v1.3-fp16"
+
+        function $id(id) {
+            return document.getElementById(id);
+        }
+
+        if (!window.crypto) {
+            window.crypto = {};
+            window.crypto.getRandomValues = function (arr) {
+                console.log("Warning: using unsafe polyfill for window.crypto.getRandomValues");
+                for (var i = 0; i < arr.length; i++) {
+                    arr[i] = Math.floor(Math.random() * 256);
+                }
+                return arr;
+            }
+        }
+        
+        function genUUID4() {
+            var arr = window.crypto.getRandomValues(new Uint8Array(16));
+            arr[6] = (arr[6] & 0x0f) | 0x40;
+            arr[8] = (arr[8] & 0x3f) | 0x80;
+            var ret = ""
+            for (var i = 0; i < arr.length; i++) {
+                if (i == 4 || i == 6 || i == 8 || i == 10) {
+                    ret += "-";
+                }
+                ret += arr[i].toString(16).padStart(2, "0");
+            }
+            return ret;
+        }
+        
+        var msgHistory = [];
+        var lastContent = null
+        var chatBox = document.getElementById("chatBox");
+        var inputBox = document.getElementById("inputBox");
+        var convID = genUUID4();
+
+
+        if (!window.localStorage) {
+            window.localStorage = {};
+        }
+
+        if (!localStorage['user_id']) {
+            localStorage['user_id'] = genUUID4();
+        }
+
+        $id("temperature").oninput = function () {
+            $id("temp").innerText = this.value;
+        }
+
+        inputBox.oninput = function () {
+            this.style.height = "auto";
+            this.style.height = (this.scrollHeight) + "px";
+            chatBox.style.height = "calc(100% - " + this.style.height + ")";
+        }
+
+        function addMessage(message) {
+            var newMessage = document.createElement("div");
+            newMessage.classList.add("mb-2");
+
+            var role = document.createElement("span");
+            role.classList.add("font-bold", message.role == "user" ? "text-blue-600" : "text-red-600");
+            role.innerText = message.role + ": ";
+
+            var content = document.createElement("span");
+            content.innerText = message.content;
+
+            newMessage.appendChild(role);
+            newMessage.appendChild(content);
+            lastContent = content;
+            chatBox.appendChild(newMessage);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        async function doChat() {
+            var msg = "";
+            var userMsg = inputBox.value.trim();
+            if (userMsg == "") return;
+            // Disable input
+            inputBox.disabled = true;
+            try {
+
+                // Add user message
+                addMessage({
+                    role: "user",
+                    content: userMsg
+                });
+                addMessage({
+                    role: "assistant",
+                    content: "..."
+                });
+                // Send request
+                msgHistory.push({
+                    "role": "user",
+                    "content": userMsg
+                });
+                var reqObj = {
+                    "model": modelName,
+                    "messages": msgHistory,
+                    "temperature": parseFloat($id("temperature").value),
+                    "max_new_tokens": 700,
+                    "conversation_id": convID,
+                    "user_id": localStorage['user_id']
+
+                };
+                console.log(JSON.stringify(reqObj));
+                var response = await fetch(apiUrl, {
+                    method: "POST",
+                    headers: {
+                        "Authorization": "Bearer " + apiToken,
+                    },
+                    body: JSON.stringify(reqObj)
+                });
+                // Handle text/event-stream
+                console.log(response)
+                var buf = "";
+                var reader = response.body.getReader();
+                var textDec = new TextDecoder("utf-8");
+                while (true) {
+                    var { done, value } = await reader.read();
+                    if (done) break;
+                    var str = textDec.decode(value, { stream: true }); // "stream" option will save the unfinished charactors in the buffer for next decode
+                    buf += str;
+                    var lines = buf.split("\n");
+                    for (var i = 0; i < lines.length - 1; i++) {
+                        var line = lines[i].trim();
+                        if (line.length > 0) {
+                            console.log(line);
+                            var obj = JSON.parse(line);
+                            if (obj['err']) {
+                                lastContent.innerText += "\n" + obj['err'];
+                                break;
+                            }
+                            if (obj['o']) {
+                                msg += obj['o'];
+                                lastContent.innerText = msg;
+                                chatBox.scrollTop = chatBox.scrollHeight;
+                            }
+                            if (obj['done']) {
+                                console.log("done");
+                                break;
+                            }
+                        }
+                        buf = lines[lines.length - 1];
+                    }
+                }
+            } catch (e) {
+                console.log(e);
+                alert(e.message);
+            }
+            // Enable input
+            inputBox.disabled = false;
+            if (msg.length > 0) {
+                msgHistory.push({
+                    "role": "assistant",
+                    "content": msg.trim()
+                });
+                inputBox.value = "";
+                inputBox.oninput();
+                inputBox.focus();
+            }
+        }
+
+        // Handle Ctrl+Enter
+        inputBox.onkeydown = function (e) {
+            if (e.ctrlKey && e.keyCode == 13) {
+                doChat();
+            }
+        }
+    </script>
+</body>
+
+</html>
