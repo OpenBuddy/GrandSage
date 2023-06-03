@@ -102,26 +102,32 @@ class ComputeNode {
         // First 4 bytes are task id
         const taskId = buf.readUInt32BE(0);
         const task = this.currentTasks[taskId];
-        if (!task) {
-          console.log('[node] Received message for unknown task, ignoring', taskId, this.name);
-          this.removeTask(taskId, true);
-          return;
-        }
-        if (task.state !== 1) {
-          console.log('[node] Received message for task that is not running, wow');
-          this.removeTask(taskId, true);
-          return;
-        }
         var str = null;
         if (buf.length > 4) {
-          // More data to come
+          // Data coming
           str = buf.slice(4).toString("utf8");
+          if (!task) {
+            console.log('[node] Received data for unknown task, ignoring', taskId, this.name);
+            this.removeTask(taskId, true);
+            return;
+          }
+          if (task.state !== 1) {
+            console.log('[node] Received data for task that is not running, wow');
+            this.removeTask(taskId, true);
+            return;
+          }
         } else {
           // Task is done
-          this.removeTask(taskId);
-          task.state = 2;
+          if (task) {
+            this.removeTask(taskId);
+            task.state = 2;
+          }
         }
-        task.ondata(str);
+        if (task) {
+          if (task.ondata) {
+            task.ondata(str);
+          }
+        }
       } else {
         if (buf.length === 0) {
           this.lastPingTime = Date.now();
@@ -166,9 +172,11 @@ class Model {
   constructor(name) {
     this.name = name;
     this.taskQueue = [];
+    this.nodeList = [];
   }
 
   queueTask(task) {
+    console.log("[model] new task:", this.name, task)
     if (task.state != 0) {
       console.log("[model] Attempted to queue task that is not pending", task);
       return;
@@ -176,6 +184,9 @@ class Model {
     var availableNode = null;
     for (var k in computeNodes) {
       const node = computeNodes[k];
+      if (node.model != this.name) {
+        continue;
+      }
       if (node.isAvailable()) {
         availableNode = node;
         break;
@@ -190,6 +201,10 @@ class Model {
   }
 
   onNodeStatusChange(node) {
+    if (node.model != this.name) {
+      console.warn("[model] Received status change for node with wrong model", node.model, this.name);
+      return
+    }
     while (this.taskQueue.length > 0 && node.isAvailable()) {
       const task = this.taskQueue.shift();
       if (task.state != 0) {
