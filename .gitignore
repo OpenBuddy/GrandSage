@@ -30,6 +30,7 @@ test*.*
 
 run.sh
 
+test
 *.log
 
 __pycache__
