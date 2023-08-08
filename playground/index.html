@@ -10,12 +10,17 @@
 
 <body class="bg-gray-200">
     <div class="flex h-screen">
-        <div class="w-1/3 p-4 bg-white">
-            <h2 class="text-xl font-bold mb-4">Parameter Settings</h2>
+        <div class="w-1/4 p-4 bg-white">
+            <h2 class="text-xl font-bold mb-4">Parameters</h2>
             <label class="block">Temperature: <span id="temp">0.5</span></label>
             <input id="temperature" type="range" min="0" max="0.9" value="0.5" step="0.01" class="w-full">
+            <label class="block mt-4">Model name:</label>
+            <input id="modelName" type="text" class="mt-2 mb-4 w-full px-4 py-2 border rounded-md" value="">
+            <label class="block mt-4">API Token:</label>
+            <input id="apiToken" type="text" class="mt-2 mb-4 w-full px-4 py-2 border rounded-md" value="">
+            <button id="saveConfig" onclick="saveConfig();alert('saved')" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mt-4">Save</button>
         </div>
-        <div class="w-2/3 p-4 flex flex-col">
+        <div class="w-3/4 p-4 flex flex-col">
             <div id="chatBox" class="flex-grow overflow-y-auto bg-white rounded p-4 mb-4">
             </div>
             <textarea id="inputBox" rows="1" class="resize-none" style="padding:8px;" placeholder="Ctrl+Enter to send the message"></textarea>
@@ -23,8 +28,12 @@
     </div>
     <script>
         var apiUrl = "http://" + (location.hostname || "127.0.0.1") + ":8120/api/chat"
-        var apiToken = "unsafe-test-token"
-        var modelName = "openbuddy-13b-v1.3-fp16"
+        var config = {
+            apiToken: "unsafe-test-token",
+            modelName: "openbuddy-13b-v1.3-fp16",
+            temperature: 0.5
+        }
+
 
         function $id(id) {
             return document.getElementById(id);
@@ -69,6 +78,30 @@
         if (!localStorage['user_id']) {
             localStorage['user_id'] = genUUID4();
         }
+
+        function loadConfig() {
+            var cfg = JSON.parse(localStorage['config'] || "{}")
+            if (!cfg) {
+                cfg = {}
+            }
+            for (var key in cfg) {
+                console.log(key)
+                config[key] = cfg[key];
+            }
+            $id("modelName").value = config.modelName;
+            $id("apiToken").value = config.apiToken;
+            $id("temperature").value =  config.temperature;
+            $id("temp").innerText = config.temperature;
+        }
+
+        function saveConfig() {
+            config.modelName = $id("modelName").value;
+            config.apiToken = $id("apiToken").value;
+            config.temperature = parseFloat($id("temperature").value) || 0;
+            localStorage['config'] = JSON.stringify(config);
+        }
+
+        loadConfig()
 
         $id("temperature").oninput = function () {
             $id("temp").innerText = this.value;
@@ -121,7 +154,7 @@
                     "content": userMsg
                 });
                 var reqObj = {
-                    "model": modelName,
+                    "model": $id('modelName').value,
                     "messages": msgHistory,
                     "temperature": parseFloat($id("temperature").value),
                     "max_new_tokens": 700,
@@ -133,7 +166,7 @@
                 var response = await fetch(apiUrl, {
                     method: "POST",
                     headers: {
-                        "Authorization": "Bearer " + apiToken,
+                        "Authorization": "Bearer " + $id("apiToken").value,
                     },
                     body: JSON.stringify(reqObj)
                 });
