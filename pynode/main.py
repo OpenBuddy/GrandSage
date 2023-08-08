@@ -19,15 +19,7 @@ parser.add_argument("--tp_size", type=int, default=1)
 parser.add_argument("--max_concurrency", type=int, default=1)
 parser.add_argument("--model-name", type=str, default="")
 parser.add_argument("--deepspeed", action="store_true")
-parser.add_argument("--patch", type=str, default="")
 args = parser.parse_args()
-
-if args.patch == "xformers":
-    import patch_xformers
-elif args.patch == "sdp":
-    import patch_sdp
-else:
-    assert args.patch == "", "Unknown patch type: " + args.patch
 
 if 'CUDA_VISIBLE_DEVICES' in os.environ:
     args.name += "-" + os.environ['CUDA_VISIBLE_DEVICES']

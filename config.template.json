@@ -1,0 +1,8 @@
+{
+    "nodeToken":"unsafe-default-token",
+    "users" : {
+      "alice" : {
+        "token" : "unsafe-test-token"
+      }
+    }
+  }
