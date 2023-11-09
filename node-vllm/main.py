@@ -52,19 +52,25 @@ def addTask(t):
         return
     isTasksDirty = True
     system_ids = tokenizer.encode(
-        t['system'] + "\n\n", truncation=True, max_length=MODEL_MAX_TOKENS, add_special_tokens = False)
+        t['system'] + "\n", truncation=True, max_length=MODEL_MAX_TOKENS, add_special_tokens = False)
+    
     prompt = ''
+    lastRole = ''
     for m in t['messages']:
         role = "User"
         if m['role'].lower() == 'assistant':
             role = "Assistant"
-        prompt += "%s: %s\n" % (role, m['content'])
-        if role == "Assistant":
-            prompt += "\n"
-    prompt += "Assistant:"
+        prompt += "\n%s: %s" % (role, m['content'])
+        if role == 'Assistant':
+            prompt += "</s>"
+        lastRole = role
+    if lastRole != 'Assistant':
+        prompt += "\nAssistant:"
+
     prompt_ids = tokenizer.encode(
         prompt, truncation=True, max_length=60000, add_special_tokens = False)
     prompt_max_len = MODEL_MAX_TOKENS - 50 - t['max_new_tokens'] - len(system_ids)
+    print(prompt, prompt_ids)
     t['prompt_max_len'] = prompt_max_len
     if prompt_max_len < 0:
         print("System prompt too long, skipping...")
@@ -78,7 +84,7 @@ def addTask(t):
     t['idbstr'] = struct.pack(">I", t['id'])
     tasks[t['id']] = t
     prompt_str = tokenizer.decode(system_ids + prompt_ids)
-    print(prompt_str)
+    #print(prompt_str)
     engine.add_request(str(t['id']), prompt_str, SamplingParams(
         max_tokens=t['max_new_tokens'], temperature=t['temperature']))
 
@@ -94,7 +100,7 @@ async def tryConnectWS():
             print("Error when closing ws", e)
     ws = None
     try:
-        ws = await websockets.connect(url)
+        ws = await websockets.connect(url, ping_interval=None, ping_timeout=None)
         print("Connect ws success.")
         return True
     except Exception as e:
@@ -120,7 +126,7 @@ async def trySendMsg(msg):
 
 def handleMessage(msg):
     global tasks, isTasksDirty
-    print("Received message", msg)
+    #print("Received message", msg)
     if len(msg) > 0:
         msg = json.loads(msg)
         if 'stop' in msg:
@@ -153,7 +159,7 @@ async def handleTasks():
             t['last_output_str'] = outputStr
         if ro.finished:
             del tasks[rid]
-            print("Task finished:", rid)
+            #print("Task finished:", rid)
             await trySendMsg(t['idbstr'])
             continue
         
@@ -177,9 +183,9 @@ async def mainLoop():
 
         msg = None
         try:
-            waitTime = 0.001
+            waitTime = 0.01
             if len(tasks) == 0:
-                waitTime = 0.1
+                waitTime = 0.5
             msg = await asyncio.wait_for(ws.recv(), timeout=waitTime)
         except Exception as e:
             # Check if it's timeout
