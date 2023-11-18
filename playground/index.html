@@ -10,7 +10,7 @@
 
 <body class="bg-gray-200">
     <div class="flex h-screen">
-        <div class="w-1/4 p-4 bg-white">
+        <div class="w-1/4 p-4 bg-white" style="height: 100vh; overflow-y: scroll;">
             <h2 class="text-xl font-bold mb-4">Parameters</h2>
             <label class="block">Temperature: <span id="temp">0.5</span></label>
             <input id="temperature" type="range" min="0" max="0.9" value="0.5" step="0.01" class="w-full">
@@ -18,6 +18,12 @@
             <input id="modelName" type="text" class="mt-2 mb-4 w-full px-4 py-2 border rounded-md" value="">
             <label class="block mt-4">API Token:</label>
             <input id="apiToken" type="text" class="mt-2 mb-4 w-full px-4 py-2 border rounded-md" value="">
+            <label class="block mt-4">System Prompt:</label>
+            <textarea id="systemPrompt" rows="5" class="resize-none mt-2 mb-4 w-full px-4 py-2 border rounded-md" value=""></textarea>
+            <label class="block mt-4">Assistant's Template:</label>
+            <input id="assistantTemplate" type="text" class="mt-2 mb-4 w-full px-4 py-2 border rounded-md" value="">
+            <label class="block mt-4">Max new tokens:</label>
+            <input id="maxNewTokens" type="text" class="mt-2 mb-4 w-full px-4 py-2 border rounded-md" value="300">
             <button id="saveConfig" onclick="saveConfig();alert('saved')" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mt-4">Save</button>
         </div>
         <div class="w-3/4 p-4 flex flex-col">
@@ -30,8 +36,16 @@
         var apiUrl = "http://" + (location.hostname || "127.0.0.1") + ":8120/api/chat"
         var config = {
             apiToken: "unsafe-test-token",
-            modelName: "openbuddy-13b-v1.3-fp16",
-            temperature: 0.5
+            modelName: "latest",
+            temperature: 0.3,
+            maxNewTokens: 300,
+            assistantTemplate: "",
+            systemPrompt: `You are a helpful, respectful and honest AI Assistant named Buddy. You are talking to a human User.
+Always answer as helpfully and logically as possible, while being safe. Your answers should not include any harmful, political, religious, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.
+If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.
+You can speak fluently in many languages, for example: English, Chinese.
+You cannot access the internet, but you have vast knowledge, cutoff: 2021-09.
+You are trained by OpenBuddy team, (https://openbuddy.ai), you are based on OpenBuddy transformers AI model, never related to GPT or OpenAI.`
         }
 
 
@@ -92,12 +106,18 @@
             $id("apiToken").value = config.apiToken;
             $id("temperature").value =  config.temperature;
             $id("temp").innerText = config.temperature;
+            $id("systemPrompt").value = config.systemPrompt;
+            $id("maxNewTokens").value = config.maxNewTokens;
+            $id("assistantTemplate").value = config.assistantTemplate;
         }
 
         function saveConfig() {
             config.modelName = $id("modelName").value;
             config.apiToken = $id("apiToken").value;
             config.temperature = parseFloat($id("temperature").value) || 0;
+            config.systemPrompt = $id("systemPrompt").value;
+            config.maxNewTokens = parseInt($id("maxNewTokens").value);
+            config.assistantTemplate = $id("assistantTemplate").value;
             localStorage['config'] = JSON.stringify(config);
         }
 
@@ -153,13 +173,21 @@
                     "role": "user",
                     "content": userMsg
                 });
+                var clonedMsgHistory = JSON.parse(JSON.stringify(msgHistory));
+                if (config.assistantTemplate) {
+                    clonedMsgHistory.push({
+                        "role": "assistant",
+                        "content": config.assistantTemplate
+                    });
+                }
                 var reqObj = {
                     "model": $id('modelName').value,
-                    "messages": msgHistory,
+                    "messages": clonedMsgHistory,
                     "temperature": parseFloat($id("temperature").value),
-                    "max_new_tokens": 700,
+                    "max_new_tokens": parseInt($id("maxNewTokens").value),
                     "conversation_id": convID,
-                    "user_id": localStorage['user_id']
+                    "user_id": localStorage['user_id'],
+                    "system": $id("systemPrompt").value
 
                 };
                 console.log(JSON.stringify(reqObj));
