@@ -28,11 +28,13 @@ if modelName == "":
     modelName = args.model.split("/")[-1].split("\\")[-1]
 print("Model name: ", modelName)
 MODEL_MAX_TOKENS = args.model_max_tokens
+print("Model max tokens", MODEL_MAX_TOKENS)
 
 
 engine_args = EngineArgs.from_cli_args(args)
 engine: LLMEngine = LLMEngine.from_engine_args(engine_args)
 tokenizer = engine.tokenizer # AutoTokenizer.from_pretrained(modelName)
+eosTokenID = tokenizer.eos_token_id
 
 url = "ws://%s/ws?name=%s&model=%s&token=%s&max_concurrency=%d" % (
     args.server, args.name, modelName, args.token, args.max_concurrency)
@@ -52,25 +54,31 @@ def addTask(t):
         return
     isTasksDirty = True
     system_ids = tokenizer.encode(
-        t['system'] + "\n", truncation=True, max_length=MODEL_MAX_TOKENS, add_special_tokens = False)
-    
-    prompt = ''
+        t['system'] + "\n\n", truncation=True, max_length=MODEL_MAX_TOKENS)
+    prompt_ids = []
     lastRole = ''
-    for m in t['messages']:
+
+    msgLen = len(t['messages'])
+    for i in range(0, msgLen):
+        m = t['messages'][i]
+        isLastOne = (i == (msgLen - 1))
         role = "User"
         if m['role'].lower() == 'assistant':
             role = "Assistant"
-        prompt += "\n%s: %s" % (role, m['content'])
-        if role == 'Assistant':
-            prompt += "</s>"
         lastRole = role
-    if lastRole != 'Assistant':
-        prompt += "\nAssistant:"
+        msg = '\n%s: %s' % (role, m['content'])
+        ids = tokenizer.encode(msg, truncation=True, max_length=MODEL_MAX_TOKENS, add_special_tokens = False)
+        if (role == "Assistant") and (not isLastOne):
+            # Add EOS token
+            ids += [eosTokenID]
+        prompt_ids += ids
 
-    prompt_ids = tokenizer.encode(
-        prompt, truncation=True, max_length=60000, add_special_tokens = False)
+    if lastRole != 'Assistant':
+        prompt_ids += tokenizer.encode("\nAssistant:", truncation=True, max_length=MODEL_MAX_TOKENS, add_special_tokens = False)
+    
+    print(prompt_ids)
+
     prompt_max_len = MODEL_MAX_TOKENS - 50 - t['max_new_tokens'] - len(system_ids)
-    print(prompt, prompt_ids)
     t['prompt_max_len'] = prompt_max_len
     if prompt_max_len < 0:
         print("System prompt too long, skipping...")
@@ -82,11 +90,12 @@ def addTask(t):
     t['start_time'] = time.time()
     t['last_output_str'] = ''
     t['idbstr'] = struct.pack(">I", t['id'])
+    t['stop_words'] = ['\nUser:']
     tasks[t['id']] = t
-    prompt_str = tokenizer.decode(system_ids + prompt_ids)
-    #print(prompt_str)
-    engine.add_request(str(t['id']), prompt_str, SamplingParams(
-        max_tokens=t['max_new_tokens'], temperature=t['temperature']))
+    all_ids = system_ids + prompt_ids
+    engine.add_request(str(t['id']), prompt=None,
+                       sampling_params=SamplingParams(max_tokens=t['max_new_tokens'], temperature=t['temperature']), 
+                       prompt_token_ids=all_ids)
 
 
 ws = None
