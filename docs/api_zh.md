@@ -67,13 +67,15 @@ TokenLen(System Prompt) + TokenLen(截断后的会话消息文本) + max_new_tok
 
 ```
 {"o":"Hello! How can I "}
-{"o":"help you today?\n"}
+{"o":"help you"}
+{"e":"Hello! How can I help you today!\n"}
 {"done":true}
 ```
 
 响应对象可能包含以下字段：
 
-- `o`: 文本片段
+- `o`: 文本增量更新，App端应当在之前的文本后面追加这部分文本
+- `e`: 文本全量更新，App端应当用这部分文本，完全替换之前的文本
 - `done`: 表示生成已完成
 - `err`: 错误信息
 

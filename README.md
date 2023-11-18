@@ -1,23 +1,57 @@
 # GrandSage
 
-GrandSage（大贤者） is a distributed Large Language Model (LLM) inference framework that aims to support as many concurrent users as possible using reasonably priced cloud services. Please note that this project is still in the early stages of development and is currently not functional.
+GrandSage（大贤者） is a distributed Large Language Model (LLM) inference framework that aims to support as many concurrent users as possible using reasonably priced cloud services. 
 
-## TO-DO List
-- Implement GPU inference nodes using the transformers library
-- Implement CPU inference and small VRAM GPU inference nodes using the llama.cpp library
-- Implement concurrent inference support for nodes (i.e., a node can accept new tasks and execute them concurrently while processing a request)
-- Implement task scheduling, capable of managing multiple nodes and dynamically allocating tasks according to each node's concurrency capacity
-- Implement KV-Cache retention technique, where nodes keep the previous KV-Cache for a period of time, allowing the retention of KV-Cache when processing user's continued dialogue requests without having to process the user's entire chat context from scratch
-- A simple and understandable API that supports streaming inference results to the terminal
+Please note that this project is still in the early stages of development.
 
 ## System Architecture
 
-The system is currently divided into three parts: 1. Broker, 2. Python Node, and 3. Llama.cpp Node.
+The system is currently divided into three parts: 1. Model API Server (and Broker), 2. vLLM Node, and 3. Llama.cpp Node.
 
-1. The broker is written in node.js. It handles user requests, selects and sends them to an inference node, and streams the responses from the inference node.
-2. The Python Node is written in Python and uses the transformers library to support as many models as possible.
-3. Based on a highly optimized C++ library, the Llama.cpp Node is dedicated to implementing slower, less accurate inference capabilities on low-cost hardware.
-4. The broker and node communicate via WebSocket, based on a dedicated protocol definition. Please refer to docs/ws-protocol.md for more details.
+1. The Model API Server is written in node.js. It handles user requests, selects and sends them to an inference node, and streams the responses from the inference node to the user.
+2. The vLLM inference Node is written in Python and uses the `vllm` library to support fast inference on GPUs.
+4. The API Server and node communicate via WebSocket, based on a dedicated protocol definition. Please refer to [docs/ws-protocol.md] for more details.
+
+## Deployment
+
+### Model API Server
+
+1. Clone the repository.
+2. Create `config.json` based on `config.template.json`:
+```
+{
+    "nodeToken":"unsafe-default-token", # Token for vLLM nodes to connect to the server
+    "users" : {
+      "alice" : {
+        "token" : "unsafe-test-token" # Token for this API user
+      }
+    }
+  }
+```
+3. Install dependencies: `npm install`, run the server: `node server.js`, it will listen on port 8120 by default.
+
+### vLLM Node
+
+After installed [vLLM](https://github.com/vllm-project/vllm), you may use the following script to start a vLLM node:
+
+```
+#!/bin/bash
+export CUDA_VISIBLE_DEVICES=0           # Assuming using GPU 0
+python main.py \
+    --token "unsafe-default-token" \    # nodeToken in config.json
+    --name "adam" \                     # Name of this node
+    --server "127.0.0.1:8120" \         # Address of the API server
+    --model "../mymodel" \              # Path to the model directory
+    --tensor-parallel-size 1  \         # Number of GPUs to use
+    --model_name "7b-latest" \          # Name of the model
+	--max_concurrency 250               # Max simultaneous requests for this node
+```
+
+### Using the playground
+
+We have provided a simple web-based playground for testing the API Server. To use it, you need a web server that can serve static files. For example, you can use `cd playground; python3 -m http.server` to start a simple HTTP server.
+
+Then, open `localhost:8000` in your browser, and you can start chatting with the AI.
 
 ## Disclaimer
 

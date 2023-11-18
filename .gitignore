@@ -34,3 +34,5 @@ test
 *.log
 
 __pycache__
+
+*.docx
