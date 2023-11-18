@@ -10,7 +10,7 @@ The system is currently divided into three parts: 1. Model API Server (and Broke
 
 1. The Model API Server is written in node.js. It handles user requests, selects and sends them to an inference node, and streams the responses from the inference node to the user.
 2. The vLLM inference Node is written in Python and uses the `vllm` library to support fast inference on GPUs.
-4. The API Server and node communicate via WebSocket, based on a dedicated protocol definition. Please refer to [docs/ws-protocol.md] for more details.
+4. The API Server and node communicate via WebSocket, based on a dedicated protocol definition. Please refer to [docs/ws-protocol.md](docs/ws-protocol.md) for more details.
 
 ## Deployment
 

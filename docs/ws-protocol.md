@@ -1,4 +1,4 @@
-GitHub Copilot: # WebSocket Protocol Documentation between API Server and Node
+# WebSocket Protocol Documentation between API Server and Node
 
 ## WebSocket Connection
 
