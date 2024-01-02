@@ -12,6 +12,8 @@
     <div class="flex h-screen">
         <div class="w-1/4 p-4 bg-white" style="height: 100vh; overflow-y: scroll;">
             <h2 class="text-xl font-bold mb-4">Parameters</h2>
+            <label class="block mt-4">API URL:</label>
+            <input id="apiUrl" type="text" class="mt-2 mb-4 w-full px-4 py-2 border rounded-md" value="">
             <label class="block">Temperature: <span id="temp">0.5</span></label>
             <input id="temperature" type="range" min="0" max="0.9" value="0.5" step="0.01" class="w-full">
             <label class="block mt-4">Model name:</label>
@@ -33,8 +35,9 @@
         </div>
     </div>
     <script>
-        var apiUrl = "http://" + (location.hostname || "127.0.0.1") + ":8120/api/chat"
+    
         var config = {
+            apiUrl : "http://" + (location.hostname || "127.0.0.1") + ":8120/api/chat",
             apiToken: "unsafe-test-token",
             modelName: "latest",
             temperature: 0.3,
@@ -109,6 +112,7 @@ You are trained by OpenBuddy team, (https://openbuddy.ai), you are based on Open
             $id("systemPrompt").value = config.systemPrompt;
             $id("maxNewTokens").value = config.maxNewTokens;
             $id("assistantTemplate").value = config.assistantTemplate;
+            $id("apiUrl").value = config.apiUrl;
         }
 
         function saveConfig() {
@@ -118,6 +122,7 @@ You are trained by OpenBuddy team, (https://openbuddy.ai), you are based on Open
             config.systemPrompt = $id("systemPrompt").value;
             config.maxNewTokens = parseInt($id("maxNewTokens").value);
             config.assistantTemplate = $id("assistantTemplate").value;
+            config.apiUrl = $id("apiUrl").value;
             localStorage['config'] = JSON.stringify(config);
         }
 
@@ -191,6 +196,7 @@ You are trained by OpenBuddy team, (https://openbuddy.ai), you are based on Open
 
                 };
                 console.log(JSON.stringify(reqObj));
+                var apiUrl = $id("apiUrl").value;
                 var response = await fetch(apiUrl, {
                     method: "POST",
                     headers: {
