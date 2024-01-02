@@ -14,29 +14,29 @@ from vllm import EngineArgs, LLMEngine, SamplingParams, RequestOutput
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--server", type=str, default="127.0.0.1:8120")
+parser.add_argument("--server", type=str, default="ws://127.0.0.1:8120/ws")
 parser.add_argument("--name", type=str, default="beagle")
-parser.add_argument("--token", type=str, default="unsafe-default-token")
+parser.add_argument("--token", type=str, default="unsafe-test-node-token")
 parser.add_argument("--max_concurrency", type=int, default=1)
 parser.add_argument("--model_name", type=str, default="")
-parser.add_argument("--model_max_tokens", type=int, default=2048)
 parser = EngineArgs.add_cli_args(parser)
 args = parser.parse_args()
 
 modelName = args.model_name
 if modelName == "":
     modelName = args.model.split("/")[-1].split("\\")[-1]
-print("Model name: ", modelName)
-MODEL_MAX_TOKENS = args.model_max_tokens
-print("Model max tokens", MODEL_MAX_TOKENS)
+
 
 
 engine_args = EngineArgs.from_cli_args(args)
+print("Model name: ", modelName)
+MODEL_MAX_TOKENS = engine_args.max_model_len
+print("Model max tokens", MODEL_MAX_TOKENS)
 engine: LLMEngine = LLMEngine.from_engine_args(engine_args)
 tokenizer = engine.tokenizer # AutoTokenizer.from_pretrained(modelName)
 eosTokenID = tokenizer.eos_token_id
 
-url = "ws://%s/ws?name=%s&model=%s&token=%s&max_concurrency=%d" % (
+url = "%s?name=%s&model=%s&token=%s&max_concurrency=%d" % (
     args.server, args.name, modelName, args.token, args.max_concurrency)
 
 
