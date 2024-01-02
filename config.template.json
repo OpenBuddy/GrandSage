@@ -1,8 +1,10 @@
 {
-    "nodeToken":"unsafe-default-token",
+    "nodeToken":"unsafe-test-node-token",
     "users" : {
       "alice" : {
-        "token" : "unsafe-test-token"
+        "token" : "unsafe-test-user-token"
       }
-    }
+    },
+    "port": 8120,
+    "host": "127.0.0.1"
   }

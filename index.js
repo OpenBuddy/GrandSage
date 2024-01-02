@@ -11,6 +11,14 @@ const tokenToUsers = {};
 const computeNodes = {};
 const models = {};
 
+const staticFileData = {
+  "index.html": fs.readFileSync('playground/index.html', 'utf8'),
+  "tailwind.min.css": fs.readFileSync('playground/tailwind.min.css', 'utf8'),
+}
+
+
+
+
 function processConfig(config) {
   if (!config.nodeToken) {
     throw new Error('Missing nodeToken in config.json');
@@ -237,10 +245,11 @@ const server = http.createServer((req, res) => {
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type'
   };
-  headers['Content-Type'] = 'text/event-stream';
-  headers['Cache-Control'] = 'no-cache';
-  res.writeHead(200, '', headers);
+
   if (req.url === '/api/chat' && req.method === 'POST') {
+    headers['Cache-Control'] = 'no-cache';
+    headers['Content-Type'] = 'text/event-stream';
+    res.writeHead(200, '', headers);
     let body = '';
     req.on('data', (chunk) => {
       body += chunk.toString();
@@ -303,9 +312,21 @@ const server = http.createServer((req, res) => {
         res.end();
       }
     });
-  } else {
-    res.end();
+    return;
   }
+  if (req.url == "/") {
+    headers['Content-Type'] = 'text/html';
+    res.write(staticFileData["index.html"]);
+    res.end();
+    return;
+  }
+  if (req.url == "/tailwind.min.css") {
+    headers['Content-Type'] = 'text/css';
+    res.write(staticFileData["tailwind.min.css"]);
+    res.end();
+    return;
+  }
+  res.end();
 });
 
 
@@ -314,7 +335,7 @@ function preprocessChatRequest(jsonStr) {
   var obj = JSON.parse(jsonStr);
   var ret = {};
   ret.temperature = parseFloat(obj.temperature) || 0;
-  if ((obj.temperature < 0.01)  || (obj.temperature > 0.99)) {
+  if ((obj.temperature < 0.01) || (obj.temperature > 0.99)) {
     ret.temperature = 0;
   }
   ret.max_new_tokens = parseInt(obj.max_new_tokens) || 50;
@@ -368,8 +389,8 @@ wss.on('connection', (ws, req) => {
   node.handleNewWSConn(ws);
 });
 
-server.listen(8120, () => {
-  console.log('Server listening on port 8120');
+server.listen(config.port, config.host, () => {
+  console.log('Server listening on:', config.port, config.host)
 });
 
 

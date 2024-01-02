@@ -37,7 +37,7 @@
     <script>
     
         var config = {
-            apiUrl : "http://" + (location.hostname || "127.0.0.1") + ":8120/api/chat",
+            apiUrl : location.origin + "/api/chat",
             apiToken: "unsafe-test-token",
             modelName: "latest",
             temperature: 0.3,
