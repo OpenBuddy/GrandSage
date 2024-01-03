@@ -36,3 +36,5 @@ test
 __pycache__
 
 *.docx
+
+*.pem
