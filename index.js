@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const http = require('http');
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
+const https = require('https');
 
 const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
 const tokenToUsers = {};
@@ -255,7 +256,9 @@ function checkAuth(req) {
 }
 
 
-const server = http.createServer((req, res) => {
+var server
+
+function httpReqHandler(req, res) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
@@ -348,7 +351,18 @@ const server = http.createServer((req, res) => {
     return;
   }
   res.end();
-});
+}
+
+if (!config.key) {
+  server = http.createServer(httpReqHandler);
+} else {
+  server = https.createServer({
+    key: fs.readFileSync(config.key),
+    cert: fs.readFileSync(config.cert),
+  }, httpReqHandler);
+  // openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+}
+
 
 
 
