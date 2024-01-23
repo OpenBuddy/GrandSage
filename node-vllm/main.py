@@ -30,6 +30,8 @@ if modelName == "":
 
 engine_args = EngineArgs.from_cli_args(args)
 print("Model name: ", modelName)
+if engine_args.max_model_len is None:
+    engine_args.max_model_len = 4096
 MODEL_MAX_TOKENS = engine_args.max_model_len
 print("Model max tokens", MODEL_MAX_TOKENS)
 engine: LLMEngine = LLMEngine.from_engine_args(engine_args)
