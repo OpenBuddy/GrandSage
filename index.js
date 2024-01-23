@@ -11,6 +11,15 @@ const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
 const tokenToUsers = {};
 const computeNodes = {};
 const models = {};
+var reqCounter = Date.now() % 0x70000000;
+
+function allocReqID() {
+  reqCounter += 1;
+  reqCounter %= 0x70000000;
+  return reqCounter;
+}
+
+
 
 const staticFileData = {
   "index.html": fs.readFileSync('playground/index.html', 'utf8'),
@@ -281,7 +290,7 @@ function httpReqHandler(req, res) {
     req.on('end', () => {
       try {
         const data = preprocessChatRequest(body);
-        const id = crypto.randomInt(0, 0x7FFFFFFF);
+        const id = allocReqID();
         const task = {
           state: 0,
           id: id,
