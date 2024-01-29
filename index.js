@@ -267,6 +267,15 @@ function checkAuth(req) {
 
 var server
 
+function tryFinishReqWithStr(res, str) {
+  try {
+    res.write(str);
+    res.end();
+  } catch (e) {
+    console.log("[api] Error writing error response:", e.message);
+  }
+}
+
 function httpReqHandler(req, res) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -276,8 +285,7 @@ function httpReqHandler(req, res) {
 
   if (req.url === '/api/chat' && req.method === 'POST') {
     if (!checkAuth(req)) {
-      res.write(`{"err":"unauthorized"}\n`);
-      res.end();
+      tryFinishReqWithStr(res, `{"err":"unauthorized"}\n`);
       return;
     }
     headers['Cache-Control'] = 'no-cache';
@@ -304,45 +312,46 @@ function httpReqHandler(req, res) {
 
         if (!model) {
           console.log("[api] Unknown model:", data.model);
-          res.write(`{"err":"unknown model"}\n`);
-          res.end()
+          tryFinishReqWithStr(res, `{"err":"unknown model"}\n`);
           return;
         }
 
         task.ondata = (data) => {
           if (data === null) {
-            res.write(`{"done":true}\n`);
-            res.end();
+            tryFinishReqWithStr(res,`{"done":true}\n`);
           } else {
-            res.write(JSON.stringify({ o: data }) + '\n', (err) => {
-              if (err) {
-                console.log("[api] Error writing to response:", err.message);
-                cancelTask(task);
-              }
-            });
+            try {
+              res.write(JSON.stringify({ o: data }) + '\n', (err) => {
+                if (err) {
+                  console.log("[api] Error writing to response:", err.message);
+                  cancelTask(task);
+                }
+              });
+            } catch (e) {
+              console.log("[api] Error writing to response:", e.message);
+              cancelTask(task);
+            }
+
           }
         }
         model.queueTask(task);
         setTimeout(() => {
           if (task.state === 0) {
             console.log("[api] Timeout waiting for node:", task.id);
-            res.write(`{"err":"timeout waiting for node"}\n`);
-            res.end();
+            tryFinishReqWithStr(res, `{"err":"timeout waiting for node"}\n`);
           }
         }, 30 * 1000);
         setTimeout(() => {
           if (task.state !== 2) {
             console.log("[api] Timeout waiting for finish:", task.id);
             cancelTask(task);
-            res.write(`{"err":"timeout waiting for finish"}\n`);
-            res.end();
+            tryFinishReqWithStr(res, `{"err":"timeout waiting for finish"}\n`);
           }
         }, 300 * 1000);
       } catch (e) {
         console.log("[api] Error parsing request body", e);
         console.log(body)
-        res.write(`{"err":"invalid request"}\n`);
-        res.end();
+        tryFinishReqWithStr(res, `{"err":"invalid request"}\n`);
       }
     });
     return;

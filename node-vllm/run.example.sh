@@ -1,5 +1,5 @@
 #!/bin/bash
-export NCCL_P2P_DISABLE=1
+# export NCCL_P2P_DISABLE=1
 
 python main.py \
     --token "unsafe-test-node-token" \
