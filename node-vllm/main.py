@@ -36,6 +36,9 @@ MODEL_MAX_TOKENS = engine_args.max_model_len
 print("Model max tokens", MODEL_MAX_TOKENS)
 engine: LLMEngine = LLMEngine.from_engine_args(engine_args)
 tokenizer = engine.tokenizer # AutoTokenizer.from_pretrained(modelName)
+if not hasattr(tokenizer, 'eos_token_id'): # a TokenizerGroup, get the real tokenizer in this case
+    tokenizer = tokenizer.tokenizer
+
 eosTokenID = tokenizer.eos_token_id
 
 url = "%s?name=%s&model=%s&token=%s&max_concurrency=%d" % (
