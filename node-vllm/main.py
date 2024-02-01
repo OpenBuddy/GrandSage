@@ -155,6 +155,8 @@ def handleMessage(msg):
 
 async def handleTasks():
     global tasks
+    if len(tasks) == 0:
+        return
     request_outputs = engine.step()
     for ro in request_outputs:
         rid = int(ro.request_id)
