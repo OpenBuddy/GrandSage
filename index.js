@@ -1,5 +1,9 @@
 // Task states: 0 = pending, 1 = running, 2 = done/cancelled/error
 
+const TASK_STATE_PENDING = 0;
+const TASK_STATE_RUNNING = 1;
+const TASK_STATE_DONE = 2;
+
 const WebSocket = require('ws');
 const crypto = require('crypto');
 const http = require('http');
@@ -8,6 +12,30 @@ const fs = require('fs');
 const https = require('https');
 
 const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
+var moderationList = []
+if (config.moderation_lst) {
+  // Open lst file
+  moderationList = fs.readFileSync(config.moderation_lst, 'utf8').split('\n');
+  for (var i = 0; i < moderationList.length; i++) {
+    moderationList[i] = moderationList[i].trim();
+    if (moderationList[i].length == 0) {
+      throw new Error('Empty line in moderation list');
+    }
+  }
+}
+
+function doModeration(text) {
+  var text = text.toLowerCase();
+  for (var i = 0; i < moderationList.length; i++) {
+    if (text.includes(moderationList[i])) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+
+
 const tokenToUsers = {};
 const computeNodes = {};
 const models = {};
@@ -80,13 +108,13 @@ class ComputeNode {
       console.log('[warn] Attempted to add task to disconnected node', this.name);
       return false;
     }
-    if (task.state !== 0) {
+    if (task.state !== TASK_STATE_PENDING) {
       console.log('[warn] Attempted to add task that is not pending', task);
       return false;
     }
     this.currentTasks[task.id] = task;
     this.wsConn.send(JSON.stringify(task));
-    task.state = 1;
+    task.state = TASK_STATE_RUNNING;
     task.node = this;
     return true;
   }
@@ -129,7 +157,7 @@ class ComputeNode {
             this.removeTask(taskId, true);
             return;
           }
-          if (task.state !== 1) {
+          if (task.state !== TASK_STATE_RUNNING) {
             console.log('[node] Received data for task that is not running, wow');
             this.removeTask(taskId, true);
             return;
@@ -138,10 +166,33 @@ class ComputeNode {
           // Task is done
           if (task) {
             this.removeTask(taskId);
-            task.state = 2;
+            task.state = TASK_STATE_DONE;
           }
         }
         if (task) {
+          if (str != null) {
+            task.resp += str;
+          }
+          if ((task.resp.length - task.modLastCheckedPos > 50) || (str == null)) {
+            if (doModeration(task.resp)) {
+              console.log(`[node] Moderation triggered for ${task.id}`);
+              if (task.ondata) {
+                task.ondata(null, {
+                  "e": " ",
+                  "err": "moderation",
+                  "mod": {
+                    eng: 0,
+                    suggestion: "ban"
+                  },
+                  "done": true
+                });
+              }
+              this.removeTask(task.id, true);
+              task.state = TASK_STATE_DONE;
+              return;
+            }
+            task.modLastCheckedPos = task.resp.length;
+          }
           if (task.ondata) {
             task.ondata(str);
           }
@@ -302,6 +353,8 @@ function httpReqHandler(req, res) {
         const task = {
           state: 0,
           id: id,
+          resp: '',
+          modLastCheckedPos: 0,
           system: data.system,
           messages: data.messages,
           max_new_tokens: data.max_new_tokens,
@@ -309,6 +362,14 @@ function httpReqHandler(req, res) {
           created_at: Math.floor(Date.now() / 1000),
         };
         const model = models[data.model];
+        // Check atmost last 3 messages for moderation
+        for (var i = Math.max(0, data.messages.length - 3); i < data.messages.length; i++) {
+          if (doModeration(data.messages[i].content)) {
+            console.log(`[api] Moderation triggered for ${id}`);
+            tryFinishReqWithStr(res, `{"err":"moderation"}\n`);
+            return;
+          }
+        }
 
         if (!model) {
           console.log("[api] Unknown model:", data.model);
@@ -316,7 +377,11 @@ function httpReqHandler(req, res) {
           return;
         }
 
-        task.ondata = (data) => {
+        task.ondata = (data, err) => {
+          if (err) {
+            tryFinishReqWithStr(res, JSON.stringify(err) + '\n');
+            return
+          }
           if (data === null) {
             tryFinishReqWithStr(res,`{"done":true}\n`);
           } else {

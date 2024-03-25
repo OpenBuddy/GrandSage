@@ -220,14 +220,21 @@ You are trained by OpenBuddy team, (https://openbuddy.ai), you are based on Open
                         if (line.length > 0) {
                             console.log(line);
                             var obj = JSON.parse(line);
-                            if (obj['err']) {
-                                lastContent.innerText += "\n" + obj['err'];
-                                break;
-                            }
                             if (obj['o']) {
                                 msg += obj['o'];
                                 lastContent.innerText = msg;
                                 chatBox.scrollTop = chatBox.scrollHeight;
+                            }
+                            if (obj['e']) {
+                                msg = obj['e'];
+                                lastContent.innerText = msg;
+                            }
+                            if (obj['mod']) {
+                                console.log("Moderation: " + obj['mod'])
+                            }
+                            if (obj['err']) {
+                                lastContent.innerText = msg + "\n" + "Error: " + obj['err'];
+                                break;
                             }
                             if (obj['done']) {
                                 console.log("done");
