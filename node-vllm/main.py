@@ -64,12 +64,17 @@ def addTask(t):
     lastRole = ''
 
     msgLen = len(t['messages'])
+    if msgLen <= 0:
+        return
+    lastUserMsg = ""
     for i in range(0, msgLen):
         m = t['messages'][i]
         isLastOne = (i == (msgLen - 1))
         role = "User"
         if m['role'].lower() == 'assistant':
             role = "Assistant"
+        else:
+            lastUserMsg = m['content']
         lastRole = role
         msg = '\n%s: %s' % (role, m['content'])
         ids = tokenizer.encode(msg, truncation=True, max_length=MODEL_MAX_TOKENS, add_special_tokens = False)
@@ -81,7 +86,7 @@ def addTask(t):
     if lastRole != 'Assistant':
         prompt_ids += tokenizer.encode("\nAssistant:", truncation=True, max_length=MODEL_MAX_TOKENS, add_special_tokens = False)
     
-    print(prompt_ids)
+    print("Task started: ", t['id'], lastUserMsg)
 
     prompt_max_len = MODEL_MAX_TOKENS - 50 - t['max_new_tokens'] - len(system_ids)
     t['prompt_max_len'] = prompt_max_len
@@ -175,7 +180,7 @@ async def handleTasks():
             t['last_output_str'] = outputStr
         if ro.finished:
             del tasks[rid]
-            #print("Task finished:", rid)
+            print("Task finished:", rid, ro.outputs[0].text)
             await trySendMsg(t['idbstr'])
             continue
         
