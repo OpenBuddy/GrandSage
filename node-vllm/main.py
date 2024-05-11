@@ -19,6 +19,7 @@ parser.add_argument("--name", type=str, default="beagle")
 parser.add_argument("--token", type=str, default="unsafe-test-node-token")
 parser.add_argument("--max_concurrency", type=int, default=1)
 parser.add_argument("--model_name", type=str, default="")
+parser.add_argument("--prompt_format", type=str, default="plain")
 parser = EngineArgs.add_cli_args(parser)
 args = parser.parse_args()
 
@@ -52,29 +53,20 @@ def getTaskByID(id):
     if id in tasks:
         return tasks[id]
 
-def addTask(t):
-    global tasks, isTasksDirty
-    if getTaskByID(t['id']) is not None:
-        print("Task already exists, ignoring...")
-        return
-    isTasksDirty = True
-    system_ids = tokenizer.encode(
-        t['system'] + "\n\n", truncation=True, max_length=MODEL_MAX_TOKENS)
-    prompt_ids = []
-    lastRole = ''
 
-    msgLen = len(t['messages'])
+def format_prompt_plain(system, messages):
+    system_ids = tokenizer.encode(
+        system + "\n\n", truncation=True, max_length=MODEL_MAX_TOKENS)
+    prompt_ids = []
+    msgLen = len(messages)
     if msgLen <= 0:
-        return
-    lastUserMsg = ""
+        return system_ids, []
     for i in range(0, msgLen):
-        m = t['messages'][i]
+        m = messages[i]
         isLastOne = (i == (msgLen - 1))
         role = "User"
         if m['role'].lower() == 'assistant':
             role = "Assistant"
-        else:
-            lastUserMsg = m['content']
         lastRole = role
         msg = '\n%s: %s' % (role, m['content'])
         ids = tokenizer.encode(msg, truncation=True, max_length=MODEL_MAX_TOKENS, add_special_tokens = False)
@@ -82,12 +74,51 @@ def addTask(t):
             # Add EOS token
             ids += [eosTokenID]
         prompt_ids += ids
-
     if lastRole != 'Assistant':
         prompt_ids += tokenizer.encode("\nAssistant:", truncation=True, max_length=MODEL_MAX_TOKENS, add_special_tokens = False)
-    
-    print("Task started: ", t['id'], lastUserMsg)
+    return system_ids, prompt_ids
 
+def format_prompt_fourfourml(system, messages):
+    system_ids = tokenizer.encode(
+        "<|role|>system<|says|>" + system + "<|end|>\n", truncation=True, max_length=MODEL_MAX_TOKENS)
+    prompt_ids = []
+    msgLen = len(messages)
+    if msgLen <= 0:
+        return system_ids, []
+    for i in range(0, msgLen):
+        m = messages[i]
+        isLastOne = (i == (msgLen - 1))
+        role = m['role'].lower()
+        lastRole = role
+        msg = "<|role|>%s<|says|>%s<|end|>\n" % (role, m['content'])
+        if (role == 'assistant') and (isLastOne):
+            # Do not add <|end|> in the last assistant message
+            msg = "<|role|>%s<|says|>%s" % (role, m['content'])
+        ids = tokenizer.encode(msg, truncation=True, max_length=MODEL_MAX_TOKENS, add_special_tokens = False)
+        prompt_ids += ids
+    if lastRole != 'assistant':
+        prompt_ids += tokenizer.encode("<|role|>assistant<|says|>", truncation=True, max_length=MODEL_MAX_TOKENS, add_special_tokens = False)
+    return system_ids, prompt_ids
+
+def addTask(t):
+    global tasks, isTasksDirty
+    if getTaskByID(t['id']) is not None:
+        print("Task already exists, ignoring...")
+        return
+    isTasksDirty = True
+    
+    if args.prompt_format == "fourfourml":
+        system_ids, prompt_ids = format_prompt_fourfourml(t['system'], t['messages'])
+    elif args.prompt_format == "plain":
+        system_ids, prompt_ids = format_prompt_plain(t['system'], t['messages'])
+    else:
+        assert False, "Unknown prompt format: %s" % args.prompt_format
+
+    if len(prompt_ids) <= 0:
+        print("No message to generate, skipping...")
+        return
+    
+    print("Task started: ", t['id'])
     prompt_max_len = MODEL_MAX_TOKENS - 50 - t['max_new_tokens'] - len(system_ids)
     t['prompt_max_len'] = prompt_max_len
     if prompt_max_len < 0:
@@ -96,13 +127,16 @@ def addTask(t):
     # Check if larger than HALF_MAX_TOKENS
     if prompt_max_len < len(prompt_ids):
         prompt_ids = prompt_ids[-prompt_max_len:]
+
     t['tokens_generated'] = 0
     t['start_time'] = time.time()
     t['last_output_str'] = ''
     t['idbstr'] = struct.pack(">I", t['id'])
-    t['stop_words'] = ['\nUser:']
+    t['stop_words'] = ['\nUser:', '<|endoftext|>']
     tasks[t['id']] = t
+
     all_ids = system_ids + prompt_ids
+    print("Prompt: ", tokenizer.decode(all_ids))
     engine.add_request(str(t['id']), prompt=None,
                        sampling_params=SamplingParams(max_tokens=t['max_new_tokens'], temperature=t['temperature']), 
                        prompt_token_ids=all_ids)
@@ -224,6 +258,8 @@ async def mainLoop():
 async def watchDog():
     while True:
         await asyncio.sleep(30)
+        if len(tasks) == 0:
+            continue
         print("=== Info, time:", time.time())
         print("Tasks:", len(tasks))
         for t in tasks.values():
