@@ -524,7 +524,4 @@ server.listen(config.port, config.host, () => {
 });
 
 
-const defaultSystemPrompt = `You are a helpful assistant name Buddy.
-You are trained by Zhejiang University.
-
-`
+const defaultSystemPrompt = `You are a helpful assistant name Buddy.`
