@@ -13,6 +13,8 @@ const https = require('https');
 
 const config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
 var moderationList = []
+var moderationRegex = null;
+
 if (config.moderation_lst) {
   // Open lst file
   moderationList = fs.readFileSync(config.moderation_lst, 'utf8').split('\n');
@@ -22,16 +24,18 @@ if (config.moderation_lst) {
       throw new Error('Empty line in moderation list');
     }
   }
+  // ignore case for moderation list
+  moderationRegex = new RegExp(moderationList.join('|'), 'i');
+  console.log('[moderation] Loaded moderation regex:', moderationRegex);
 }
 
 function doModeration(text) {
-  var text = text.toLowerCase();
-  for (var i = 0; i < moderationList.length; i++) {
-    if (text.includes(moderationList[i])) {
-      return 1;
-    }
+  if (!moderationRegex) {
+    return 0;
   }
-  return 0;
+  if (moderationRegex.test(text)) {
+    return 1;
+  }
 }
 
 
@@ -74,6 +78,8 @@ function processConfig(config) {
       throw new Error(`Duplicate token ${user.token} in config.json`);
     }
     tokenToUsers[user.token] = user;
+    user.token = '-';
+    user.name = key;
   }
 }
 processConfig(config);
@@ -174,22 +180,25 @@ class ComputeNode {
             task.resp += str;
           }
           if ((task.resp.length - task.modLastCheckedPos > 50) || (str == null)) {
-            if (doModeration(task.resp)) {
-              console.log(`[node] Moderation triggered for ${task.id}`);
-              if (task.ondata) {
-                task.ondata(null, {
-                  "e": " ",
-                  "err": "moderation",
-                  "mod": {
-                    eng: 0,
-                    suggestion: "ban"
-                  },
-                  "done": true
-                });
+            var startPos = Math.max(0, task.modLastCheckedPos - 10);
+            if (doModeration(task.resp.substring(startPos))) {
+              console.log(`[node] Moderation triggered for ${task.id}, user: ${task.user.name}, model: ${this.model}`);
+              if (!task.user.bypass_moderation) {
+                if (task.ondata) {
+                  task.ondata(null, {
+                    "e": " ",
+                    "err": "moderation",
+                    "mod": {
+                      eng: 0,
+                      suggestion: "stop"
+                    },
+                    "done": true
+                  });
+                }
+                this.removeTask(task.id, true);
+                task.state = TASK_STATE_DONE;
+                return;
               }
-              this.removeTask(task.id, true);
-              task.state = TASK_STATE_DONE;
-              return;
             }
             task.modLastCheckedPos = task.resp.length;
           }
@@ -299,7 +308,7 @@ function cancelTask(task) {
 }
 
 
-function checkAuth(req) {
+function checkAuthAndGetUser(req) {
   // Get authorization header
   const auth = req.headers['authorization'];
   if (!auth) {
@@ -309,10 +318,11 @@ function checkAuth(req) {
     return false;
   }
   const token = auth.substring(7);
-  if (!tokenToUsers[token]) {
+  var user = tokenToUsers[token]
+  if (!user) {
     return false;
   }
-  return true;
+  return user;
 }
 
 
@@ -329,13 +339,14 @@ function tryFinishReqWithStr(res, str) {
 
 function httpReqHandler(req, res) {
   const headers = {
+    /*
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type'
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type'*/
   };
-
+  var user = checkAuthAndGetUser(req);
   if (req.url === '/api/chat' && req.method === 'POST') {
-    if (!checkAuth(req)) {
+    if (!user) {
       tryFinishReqWithStr(res, `{"err":"unauthorized"}\n`);
       return;
     }
@@ -360,30 +371,31 @@ function httpReqHandler(req, res) {
           max_new_tokens: data.max_new_tokens,
           temperature: data.temperature,
           created_at: Math.floor(Date.now() / 1000),
+          user: user,
         };
         const model = models[data.model];
         // Check atmost last 3 messages for moderation
         for (var i = Math.max(0, data.messages.length - 3); i < data.messages.length; i++) {
           if (doModeration(data.messages[i].content)) {
-            console.log(`[api] Moderation triggered for ${id}`);
-            tryFinishReqWithStr(res, `{"err":"moderation"}\n`);
-            return;
+            console.log(`[api] Moderation triggered for ${id}, content: ${data.messages[i].content}, user: ${data.messages[i].role}`);
+            if (!user.bypass_moderation) {
+              tryFinishReqWithStr(res, `{"err":"moderation"}\n`);
+              return;
+            }
           }
         }
-
         if (!model) {
           console.log("[api] Unknown model:", data.model);
           tryFinishReqWithStr(res, `{"err":"unknown model"}\n`);
           return;
         }
-
         task.ondata = (data, err) => {
           if (err) {
             tryFinishReqWithStr(res, JSON.stringify(err) + '\n');
             return
           }
           if (data === null) {
-            tryFinishReqWithStr(res,`{"done":true}\n`);
+            tryFinishReqWithStr(res, `{"done":true}\n`);
           } else {
             try {
               res.write(JSON.stringify({ o: data }) + '\n', (err) => {
@@ -412,7 +424,7 @@ function httpReqHandler(req, res) {
             cancelTask(task);
             tryFinishReqWithStr(res, `{"err":"timeout waiting for finish"}\n`);
           }
-        }, 300 * 1000);
+        }, 600 * 1000);
       } catch (e) {
         console.log("[api] Error parsing request body", e);
         console.log(body)
@@ -512,12 +524,7 @@ server.listen(config.port, config.host, () => {
 });
 
 
-const defaultSystemPrompt = `You are a helpful, respectful and honest INTP-T AI Assistant named Buddy. You are talking to a human User.
-Always answer as helpfully and logically as possible, while being safe. Your answers should not include any harmful, political, religious, unethical, racist, sexist, toxic, dangerous, or illegal content. Please ensure that your responses are socially unbiased and positive in nature.
-If a question does not make any sense, or is not factually coherent, explain why instead of answering something not correct. If you don't know the answer to a question, please don't share false information.
-You like to use emojis. You can speak fluently in many languages, for example: English, Chinese.
-You cannot access the internet, but you have vast knowledge, cutoff: 2021-09.
-You are trained by OpenBuddy team, (https://openbuddy.ai, https://github.com/OpenBuddy/OpenBuddy), you are based on LLaMA and Falcon transformers model, not related to GPT or OpenAI.
+const defaultSystemPrompt = `You are a helpful assistant name Buddy.
+You are trained by Zhejiang University.
 
-User: Hi.
-Assistant: Hi, I'm Buddy, your AI assistant. How can I help you today?`
+`
