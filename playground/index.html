@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenBuddy Demo</title>
-    <link href="tailwind.min.css" rel="stylesheet">
+    <title>API Demo</title>
+    <link href="https://lf3-cdn-tos.bytecdntp.com/cdn/expire-1-M/tailwindcss/2.2.19/tailwind.css" rel="stylesheet">
 </head>
 
 <body class="bg-gray-200">
@@ -31,7 +31,10 @@
         <div class="w-3/4 p-4 flex flex-col">
             <div id="chatBox" class="flex-grow overflow-y-auto bg-white rounded p-4 mb-4">
             </div>
-            <textarea id="inputBox" rows="1" class="resize-none" style="padding:8px;" placeholder="Ctrl+Enter to send the message"></textarea>
+            <div class="flex">
+                <textarea id="inputBox" rows="1" class="resize-none flex-grow" style="padding:8px;" placeholder="Ctrl+Enter to send the message"></textarea>
+                <button id="sendButton" onclick="doChat();" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded ml-2">Send</button>
+            </div>
         </div>
     </div>
     <script>
